@@ -34,3 +34,21 @@ function startDaemon() {
 
 // Berikan jeda 2 detik agar Next.js siap terlebih dahulu sebelum daemon melakukan fetch
 setTimeout(startDaemon, 2000);
+
+// 3. Self-Keepalive (Mencegah Free Tier Cloud seperti Render tertidur / sleep)
+const selfUrl = process.env.RENDER_EXTERNAL_URL || process.env.APP_URL;
+if (selfUrl) {
+  console.log(`[RUNNER] Keepalive aktif untuk URL: ${selfUrl}`);
+  setInterval(() => {
+    try {
+      const client = selfUrl.startsWith('https') ? require('https') : require('http');
+      client.get(`${selfUrl}/api/health`, (res) => {
+        // Discard data
+        res.on('data', () => {});
+      }).on('error', (err) => {
+        // Abaikan error ping
+      });
+    } catch (e) {}
+  }, 4 * 60 * 1000); // Ping setiap 4 menit
+}
+

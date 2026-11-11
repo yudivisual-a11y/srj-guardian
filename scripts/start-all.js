@@ -1,4 +1,19 @@
 const { spawn } = require('child_process');
+const fs = require('fs');
+
+// macOS Caffeinate Keepawake: jaga sistem tetap aktif saat layar padam
+if (process.platform === 'darwin') {
+  try {
+    if (fs.existsSync('/usr/bin/caffeinate')) {
+      const caf = spawn('/usr/bin/caffeinate', ['-i', '-s', '-m', '-w', String(process.pid)], {
+        detached: true,
+        stdio: 'ignore'
+      });
+      caf.unref();
+      console.log('[RUNNER-POWER] ☕ macOS Caffeinate aktif! Sistem terlindungi dari sleep saat layar padam.');
+    }
+  } catch (e) {}
+}
 
 console.log('====================================================');
 console.log('  SRJ GUARDIAN — 24/7 CLOUD PRODUCTION RUNNER       ');

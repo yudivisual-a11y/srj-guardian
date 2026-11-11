@@ -162,6 +162,27 @@ function inspectFastRules(rawText) {
   return null;
 }
 
+// =========================================================================
+// SISTEM ANTI-SLEEP / KEEPAWAKE MACOS (Apple Silicon M3 / Intel)
+// Menjaga CPU, memori, & WiFi tetap aktif meskipun layar padam/terkunci
+// =========================================================================
+let caffeinateProc = null;
+if (process.platform === 'darwin' && !caffeinateProc) {
+  try {
+    const { spawn } = require('child_process');
+    if (fs.existsSync('/usr/bin/caffeinate')) {
+      caffeinateProc = spawn('/usr/bin/caffeinate', ['-i', '-s', '-m', '-w', String(process.pid)], {
+        detached: true,
+        stdio: 'ignore'
+      });
+      caffeinateProc.unref();
+      console.log('[DAEMON-POWER] ☕ macOS Caffeinate aktif! Sistem dijaga tetap online & WiFi aktif meskipun layar padam/terkunci.');
+    }
+  } catch (cafErr) {
+    console.warn('[DAEMON-POWER] Gagal mengaktifkan caffeinate:', cafErr.message);
+  }
+}
+
 async function startWhatsAppDaemon(freshPairing = false) {
   if (isInitializing) return;
   isInitializing = true;

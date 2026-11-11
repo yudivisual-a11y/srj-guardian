@@ -685,7 +685,8 @@ async function startWhatsAppDaemon(freshPairing = false) {
                 `• *bot 02* : Hapus penipuan / saldo masuk palsu + Peringatan anti-phishing & rekening\n` +
                 `• *bot 03* : Hapus ajakan dugem / miras / judi / maksiat + Peringatan tegas\n` +
                 `• *bot 04* : Tampilkan menu panduan perintah bot ini\n` +
-                `• *bot 05* : Tandai anggota butuh bantuan darurat / peduli sosial (Social Care)\n\n` +
+                `• *bot 05* : Tandai anggota butuh bantuan darurat / peduli sosial (Social Care)\n` +
+                `• *bot 06* : Kirim sapaan hangat Cyber Security SRJ & ajakan perkenalan untuk anggota ini\n\n` +
                 `_Falsafah: Silih Asah, Silih Asih, Silih Asuh_`;
 
               await sock.sendMessage(groupJid, { text: menuText }, { quoted: msg }).catch(() => {});
@@ -899,6 +900,40 @@ async function startWhatsAppDaemon(freshPairing = false) {
               }, { quoted: msg }).catch(() => {});
               return;
             }
+
+            // 6. KODE 06: SAPA ANGGOTA SECARA MANUAL VIA PERINTAH [bot 06] / [bot sapa]
+            if (code === '06' || cleanText.toLowerCase().includes('bot sapa') || cleanText.toLowerCase().includes('sapa bot')) {
+              const targetSenderSafe = targetSender || senderJid;
+              const targetNumberSafe = targetSenderSafe.replace(/[^0-9]/g, '');
+
+              updateDb((db) => {
+                if (!Array.isArray(db.welcomedMembers)) db.welcomedMembers = [];
+                if (!db.welcomedMembers.includes(targetNumberSafe)) {
+                  db.welcomedMembers.push(targetNumberSafe);
+                }
+              });
+
+              const welcomeMessage = 
+                `Sampurasun Kang/Teh @${targetNumberSafe}! 🙏\n` +
+                `Wilujeng sumping di grup resmi Paguyuban Sunda Rantau Jogja (SRJ).\n\n` +
+                `🛡️ *Sapaan Ramah ti Cyber Security SRJ*:\n` +
+                `Selamat bergabung di wadah silaturahmi perantau asal Tanah Sunda (Jawa Barat & Banten) di Daerah Istimewa Yogyakarta.\n\n` +
+                `Paguyuban ini berlandaskan falsafah luhur leluhur urang Sunda:\n` +
+                `✨ *Silih Asah, Silih Asih, Silih Asuh* ✨\n` +
+                `_Nulung ka nu butuh, nalang ka nu susah._\n\n` +
+                `Mangga Kang/Teh nepangkeun supados langkung wanoh & akrab:\n` +
+                `• *Nama*:\n` +
+                `• *Asal Lembur* (Kab/Kota di Jabar/Banten):\n` +
+                `• *Di Jogjana di mana* (Daerah/Wilayah di Jogja):\n\n` +
+                `Mugi-mugi betah, guyub rukun, berkah, sareng tiasa silih rojong di tanah perantauan. Rahayu! 🤝`;
+
+              console.log(`[CMD-06] Mengirim sapaan manual atas perintah bot 06 ke @${targetNumberSafe} di ${groupJid}`);
+              await sock.sendMessage(groupJid, {
+                text: welcomeMessage,
+                mentions: [targetSenderSafe]
+              }, { quoted: msg }).catch(e => console.error('[CMD-06] Gagal kirim sambutan:', e.message));
+              return;
+            }
           }
 
           // Simpan riwayat pesan untuk referensi perintah tanpa quote
@@ -916,6 +951,51 @@ async function startWhatsAppDaemon(freshPairing = false) {
           if (groupHistory.length > 25) groupHistory.pop();
 
           console.log(`[DAEMON-MSG] [${groupJid}] ${senderName}: ${text.slice(0, 45)}...`);
+
+          // =========================================================================
+          // FITUR DETEKSI PERKENALAN ANGGOTA BARU DI CHAT (Misal: "Izin gabung...", "Salam kenal...")
+          // =========================================================================
+          const isIntroMessage = /\b(izin\s*gabung|salam\s*kenal|nembe\s*gabung|abdi\s*perantau|anyar\s*gabung|baru\s*gabung|gabung\s*kang|gabung\s*teh|sampurasun.*gabung)\b/i.test(text);
+
+          if (isIntroMessage && isGroup) {
+            const dbCheck = readDb() || {};
+            if (!Array.isArray(dbCheck.welcomedMembers)) {
+              dbCheck.welcomedMembers = [];
+            }
+            const welcomedSet = new Set(dbCheck.welcomedMembers);
+            const senderNumber = senderJid.replace(/[^0-9]/g, '');
+            const myNum = sock.user?.id ? sock.user.id.split(':')[0].replace(/[^0-9]/g, '') : '';
+
+            if (senderNumber && senderNumber !== myNum && !welcomedSet.has(senderNumber)) {
+              console.log(`[WELCOME-GUARD] 🤝 Deteksi perkenalan anggota baru di chat dari @${senderNumber}: "${text.slice(0, 30)}..."`);
+              welcomedSet.add(senderNumber);
+              updateDb((db) => {
+                if (!Array.isArray(db.welcomedMembers)) db.welcomedMembers = [];
+                if (!db.welcomedMembers.includes(senderNumber)) {
+                  db.welcomedMembers.push(senderNumber);
+                }
+              });
+
+              const welcomeMessage = 
+                `Sampurasun Kang/Teh @${senderNumber}! 🙏\n` +
+                `Wilujeng sumping di grup resmi Paguyuban Sunda Rantau Jogja (SRJ).\n\n` +
+                `🛡️ *Sapaan Ramah ti Cyber Security SRJ*:\n` +
+                `Selamat bergabung di wadah silaturahmi perantau asal Tanah Sunda (Jawa Barat & Banten) di Daerah Istimewa Yogyakarta.\n\n` +
+                `Paguyuban ini berlandaskan falsafah luhur leluhur urang Sunda:\n` +
+                `✨ *Silih Asah, Silih Asih, Silih Asuh* ✨\n` +
+                `_Nulung ka nu butuh, nalang ka nu susah._\n\n` +
+                `Mangga Kang/Teh nepangkeun supados langkung wanoh & akrab:\n` +
+                `• *Nama*:\n` +
+                `• *Asal Lembur* (Kab/Kota di Jabar/Banten):\n` +
+                `• *Di Jogjana di mana* (Daerah/Wilayah di Jogja):\n\n` +
+                `Mugi-mugi betah, guyub rukun, berkah, sareng tiasa silih rojong di tanah perantauan. Rahayu! 🤝`;
+
+              await sock.sendMessage(groupJid, {
+                text: welcomeMessage,
+                mentions: [senderJid]
+              }, { quoted: msg }).catch(err => console.error('[WELCOME-GUARD] Gagal kirim sambutan otomatis:', err.message));
+            }
+          }
 
           // =========================================================================
           // JALUR KILAT (FAST-PATH INSTANT ACTION): EKSEKUSI DALAM HITUNGAN MILIDETIK (<50ms)
@@ -1325,6 +1405,20 @@ setInterval(async () => {
           success: false,
           error: syncErr.message || 'Gagal sinkronisasi grup.'
         }, null, 2));
+      }
+    } else if (cmd.command === 'SEND_MESSAGE') {
+      console.log(`[DAEMON-IPC] Mengirim pesan manual via socket ke ${cmd.to}...`);
+      try {
+        if (!currentSock) throw new Error('Socket WhatsApp belum terhubung');
+        await currentSock.sendMessage(cmd.to, {
+          text: cmd.text,
+          mentions: cmd.mentions || []
+        });
+        fs.writeFileSync(RESP_FILE, JSON.stringify({ id: cmd.id, success: true }, null, 2));
+        console.log(`[DAEMON-IPC] ✅ Berhasil kirim pesan manual ke ${cmd.to}`);
+      } catch (err) {
+        console.error(`[DAEMON-IPC] Gagal kirim pesan manual:`, err.message);
+        fs.writeFileSync(RESP_FILE, JSON.stringify({ id: cmd.id, success: false, error: err.message }, null, 2));
       }
     } else if (cmd.command === 'DISCONNECT') {
       console.log('[DAEMON-IPC] Memutuskan sesi WhatsApp...');

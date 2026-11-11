@@ -376,57 +376,74 @@ async function startWhatsAppDaemon(freshPairing = false) {
     const recentGroupMessages = new Map();
     const recentDmReplies = new Map();
 
-    sock.ev.on('messages.upsert', async (m) => {
+    const processedMessageIds = new Set();
+
+    async function handleOneMessage(msg, isBacklog = false) {
       try {
-        if (m.type !== 'notify') return;
+        if (!msg || !msg.message || msg.key?.fromMe) return;
 
-        for (const msg of m.messages) {
-          if (!msg.message || msg.key.fromMe) continue;
+      const msgId = msg.key?.id;
+      if (!msgId || processedMessageIds.has(msgId)) return;
+      processedMessageIds.add(msgId);
+      if (processedMessageIds.size > 5000) {
+        const first = processedMessageIds.values().next().value;
+        processedMessageIds.delete(first);
+      }
 
-          const isGroup = msg.key.remoteJid?.endsWith('@g.us');
-          const groupJid = msg.key.remoteJid;
-          const senderJid = msg.key.participant || msg.key.remoteJid;
-          const senderName = msg.pushName || 'Warga Rantau';
+      // Filter usia pesan (hanya proses pesan maksimal 24 jam terakhir)
+      const timestampSec = Number(msg.messageTimestamp) || Math.floor(Date.now() / 1000);
+      const ageHours = (Date.now() / 1000 - timestampSec) / 3600;
+      if (ageHours > 24) return;
 
-          const text = 
-            msg.message.conversation || 
-            msg.message.extendedTextMessage?.text || 
-            msg.message.imageMessage?.caption || 
-            msg.message.videoMessage?.caption || 
-            '';
+      const isGroup = msg.key.remoteJid?.endsWith('@g.us');
+      const groupJid = msg.key.remoteJid;
+      const senderJid = msg.key.participant || msg.key.remoteJid;
+      const senderName = msg.pushName || 'Warga Rantau';
 
-          if (!text.trim()) continue;
+      const text = 
+        msg.message.conversation || 
+        msg.message.extendedTextMessage?.text || 
+        msg.message.imageMessage?.caption || 
+        msg.message.videoMessage?.caption || 
+        '';
 
-          // =========================================================================
-          // TAMENG PRIVASI 2: AUTO-RESPONDER JAPRI & BLOKIR PELACAKAN PRIBADI
-          // =========================================================================
-          if (!isGroup) {
-            console.log(`[PRIVACY-GUARD] Pesan japri masuk dari ${senderJid} (${senderName}): ${text.slice(0, 35)}...`);
+      if (!text.trim()) return;
 
-            // Cooldown singkat (10 detik) per nomor agar responsif saat dites namun tetap aman dari flooding
-            const now = Date.now();
-            const lastReplied = recentDmReplies.get(senderJid) || 0;
-            if (now - lastReplied > 10 * 1000) {
-              recentDmReplies.set(senderJid, now);
+      if (isBacklog) {
+        console.log(`[DAEMON-CATCHUP] 🔍 Memindai pesan tertinggal (${groupJid}) dari ${senderName}: "${text.slice(0, 35)}..."`);
+      }
 
-              const autoReplyDm = `🛡️ *SRJ CYBER GUARDIAN — SISTEM KEAMANAN SIBER* 🛡️\n\n` +
-                `Sampurasun Kang/Teh ${senderName}.\n` +
-                `Nomor ini dikelola langsung oleh *Cyber Security Paguyuban Sunda Rantau Jogja (SRJ)*.\n\n` +
-                `📌 *Pemberitahuan Keamanan Siber*:\n` +
-                `1. Akun ini dioperasikan langsung oleh Cyber Security SRJ, bukan nomor pribadi.\n` +
-                `2. Sistem *TIDAK MEMBUKA LINK / FILE* apa pun yang dikirim melalui jalur pribadi demi keamanan siber.\n` +
-                `3. Nomor ini tidak melayani obrolan pribadi (japri) maupun panggilan telepon.\n\n` +
-                `_Untuk urusan paguyuban, silakan berinteraksi di dalam grup resmi atau hubungi kontak Pengurus Paguyuban Sunda Rantau Jogja._`;
+      // =========================================================================
+      // TAMENG PRIVASI 2: AUTO-RESPONDER JAPRI & BLOKIR PELACAKAN PRIBADI
+      // =========================================================================
+      if (!isGroup) {
+        if (isBacklog) return; // Jangan spam japri lama
+        console.log(`[PRIVACY-GUARD] Pesan japri masuk dari ${senderJid} (${senderName}): ${text.slice(0, 35)}...`);
 
-              console.log(`[PRIVACY-GUARD] Mengirim auto-reply japri ke ${groupJid}...`);
-              await sock.sendMessage(groupJid, { text: autoReplyDm }, { quoted: msg })
-                .then(() => console.log(`[PRIVACY-GUARD] Berhasil kirim auto-reply ke ${groupJid}`))
-                .catch(e => console.error('[PRIVACY-GUARD] Gagal kirim auto-reply japri:', e.message));
-            } else {
-              console.log(`[PRIVACY-GUARD] Pesan japri dari ${senderJid} diabaikan (cooldown aktif).`);
-            }
-            continue; // Hentikan di sini, jangan teruskan pesan japri ke pipeline moderasi grup
-          }
+        // Cooldown singkat (10 detik) per nomor agar responsif saat dites namun tetap aman dari flooding
+        const now = Date.now();
+        const lastReplied = recentDmReplies.get(senderJid) || 0;
+        if (now - lastReplied > 10 * 1000) {
+          recentDmReplies.set(senderJid, now);
+
+          const autoReplyDm = `🛡️ *SRJ CYBER GUARDIAN — SISTEM KEAMANAN SIBER* 🛡️\n\n` +
+            `Sampurasun Kang/Teh ${senderName}.\n` +
+            `Nomor ini dikelola langsung oleh *Cyber Security Paguyuban Sunda Rantau Jogja (SRJ)*.\n\n` +
+            `📌 *Pemberitahuan Keamanan Siber*:\n` +
+            `1. Akun ini dioperasikan langsung oleh Cyber Security SRJ, bukan nomor pribadi.\n` +
+            `2. Sistem *TIDAK MEMBUKA LINK / FILE* apa pun yang dikirim melalui jalur pribadi demi keamanan siber.\n` +
+            `3. Nomor ini tidak melayani obrolan pribadi (japri) maupun panggilan telepon.\n\n` +
+            `_Untuk urusan paguyuban, silakan berinteraksi di dalam grup resmi atau hubungi kontak Pengurus Paguyuban Sunda Rantau Jogja._`;
+
+          console.log(`[PRIVACY-GUARD] Mengirim auto-reply japri ke ${groupJid}...`);
+          await sock.sendMessage(groupJid, { text: autoReplyDm }, { quoted: msg })
+            .then(() => console.log(`[PRIVACY-GUARD] Berhasil kirim auto-reply ke ${groupJid}`))
+            .catch(e => console.error('[PRIVACY-GUARD] Gagal kirim auto-reply japri:', e.message));
+        } else {
+          console.log(`[PRIVACY-GUARD] Pesan japri dari ${senderJid} diabaikan (cooldown aktif).`);
+        }
+        return; // Hentikan di sini, jangan teruskan pesan japri ke pipeline moderasi grup
+      }
 
           // =========================================================================
           // DETEKSI OTOMATIS & PEMANTAUAN GRUP WHATSAPP
@@ -472,7 +489,7 @@ async function startWhatsAppDaemon(freshPairing = false) {
 
           if (!targetGroup || !targetGroup.isActive) {
             // Jika grup sengaja dinonaktifkan manual oleh admin di dashboard, abaikan pesan
-            continue;
+            return;
           }
 
           // =========================================================================
@@ -502,7 +519,7 @@ async function startWhatsAppDaemon(freshPairing = false) {
                 `_Falsafah: Silih Asah, Silih Asih, Silih Asuh_`;
 
               await sock.sendMessage(groupJid, { text: menuText }, { quoted: msg }).catch(() => {});
-              continue;
+              return;
             }
 
             console.log(`[DAEMON-CMD] Perintah admin terdeteksi: code [${code}] dari ${senderName} (${senderJid}) di ${groupJid}`);
@@ -577,7 +594,7 @@ async function startWhatsAppDaemon(freshPairing = false) {
                   });
                 });
               }
-              continue;
+              return;
             }
 
             // 2. KODE 02: HAPUS PENIPUAN / SALDO MASUK PALSU / PHISHING + PERINGATAN KEAMANAN SIBER
@@ -630,7 +647,7 @@ async function startWhatsAppDaemon(freshPairing = false) {
                   });
                 });
               }
-              continue;
+              return;
             }
 
             // 3. KODE 03: HAPUS AJAKAN DUGEM / MIRAS / JUDI SLOT / MAKSIAT + PERINGATAN TEGAS
@@ -678,7 +695,7 @@ async function startWhatsAppDaemon(freshPairing = false) {
                   });
                 });
               }
-              continue;
+              return;
             }
 
             // 5. KODE 05: TANDAI ANGGOTA BUTUH BANTUAN (SOCIAL CARE)
@@ -710,7 +727,7 @@ async function startWhatsAppDaemon(freshPairing = false) {
                 text: `🤝 *AI SOCIAL CARE SRJ*\n\nPesan dari @${targetNumberSafe} telah ditandai dan diteruskan ke tim pengurus & relawan SRJ.\n_Nulung ka nu butuh, nalang ka nu susah._`,
                 mentions: [targetSenderSafe]
               }, { quoted: msg }).catch(() => {});
-              continue;
+              return;
             }
           }
 
@@ -944,9 +961,35 @@ async function startWhatsAppDaemon(freshPairing = false) {
           } catch (apiErr) {
             console.error('[DAEMON] Gagal dispatch ke pipeline:', apiErr.message);
           }
+      } catch (err) {
+        console.error('[DAEMON] Error handleOneMessage:', err.message);
+      }
+    }
+
+    // 1. Inbound Messages Listener (baik 'notify' pesan langsung maupun 'append' pesan offline)
+    sock.ev.on('messages.upsert', async (m) => {
+      try {
+        const isBacklog = m.type === 'append';
+        for (const msg of m.messages || []) {
+          await handleOneMessage(msg, isBacklog);
         }
       } catch (err) {
-        console.error('[DAEMON] Error message handling:', err.message);
+        console.error('[DAEMON] Error message upsert handling:', err.message);
+      }
+    });
+
+    // 2. Offline / Messaging History Sync Listener (saat baru tersambung kembali setelah offline/sleep)
+    sock.ev.on('messaging-history.set', async ({ messages }) => {
+      try {
+        if (messages && messages.length > 0) {
+          console.log(`[DAEMON-CATCHUP] 📥 Menerima sinkronisasi ${messages.length} pesan riwayat. Memindai pelanggaran yang masuk saat laptop offline/tidur...`);
+          for (const msg of messages) {
+            await handleOneMessage(msg, true);
+          }
+          console.log('[DAEMON-CATCHUP] ✅ Pemindaian pesan tertinggal pasca offline selesai!');
+        }
+      } catch (err) {
+        console.error('[DAEMON-CATCHUP] Error processing history set:', err.message);
       }
     });
 

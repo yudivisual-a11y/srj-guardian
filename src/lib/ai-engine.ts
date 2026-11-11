@@ -82,6 +82,20 @@ export async function analyzeContentWithGemini(
   mimeType?: string,
   geminiApiKey?: string
 ): Promise<AIAnalysisResult> {
+  const lower = (content || '').toLowerCase();
+
+  // Pengecualian Aman Terdepan: Format Biodata Perkenalan Anggota (Nama, Asal Lembur/Kota, Di Jogja mana)
+  // Tidak boleh dianggap pelanggaran atau ancaman siber (misal nama 'Toto Budiarto', 'Judi', dsb bukan judol)
+  const isBiodataIntro = /\b(nama|asal\s*lembur|asal\s*kota|di\s*jogjana?)\s*[:=]/i.test(lower) || /•\s*nama/i.test(lower);
+  if (isBiodataIntro && !/https?:\/\/[^\s]+/i.test(content)) {
+    return {
+      isSecurityThreat: false,
+      isRuleViolation: false,
+      isSocialCareNeeded: false,
+      rawExplanation: 'Format biodata perkenalan anggota paguyuban yang sah dan aman.'
+    };
+  }
+
   const apiKey = geminiApiKey || process.env.GEMINI_API_KEY;
 
   if (apiKey && apiKey.trim().length > 10) {
@@ -158,6 +172,18 @@ export async function analyzeContentWithGemini(
 function runHeuristicIntelligence(text: string, hasMedia?: string): AIAnalysisResult {
   const lower = text.toLowerCase();
 
+  // Pengecualian Aman: Format Biodata Perkenalan (Nama, Asal Lembur, Domisili Jogja)
+  // Tidak boleh dianggap sebagai pelanggaran moderasi (misal nama 'Toto Budiarto' bukan judi online)
+  const isBiodataIntro = /\b(nama|asal\s*lembur|asal\s*kota|di\s*jogjana?)\s*[:=]/i.test(lower) || /•\s*nama/i.test(lower);
+  if (isBiodataIntro && !/https?:\/\/[^\s]+/i.test(text)) {
+    return {
+      isSecurityThreat: false,
+      isRuleViolation: false,
+      isSocialCareNeeded: false,
+      rawExplanation: 'Format biodata perkenalan anggota paguyuban yang sah dan aman.'
+    };
+  }
+
   // 1. Social Care Detection (Indonesian & Sundanese Rantau Jogja phrases)
   const isJobSeeker = /butuh (loker|kerja|pekerjaan|padamelan)|aya info padamelan|lowongan kerja jogja|serabutan|supir|kenek|pelayan|nganggur/i.test(lower);
   const isHealthEmergency = /sakit|muriang|paranas|tiris|teu damang|teu tiasa gugah|kosan sendirian|butuh obat|puskesmas|rumah sakit sardjito|panti rapih|darurat/i.test(lower);
@@ -227,7 +253,7 @@ function runHeuristicIntelligence(text: string, hasMedia?: string): AIAnalysisRe
   }
 
   // 3. Judi Online / Judol Detection (Slot Gacor, Togel, Situs Judi, Zeus, Maxwin, Taruhan)
-  const isJudiOnline = /\b(judol|slot|gacor|zeus|olympus|maxwin|sensational|scatter|pragmatic|togel|toto|sbobet|baccarat|roulette|kasino)\b|judi online|slot gacor|pola gacor|deposit pulsa|depo 10k|depo 20k|depo 25k|depo 50k|link slot|situs slot|bandar togel|toto macau|togel hk|togel sgp|agen slot|rtp live|rtp slot|link gacor|taruhan bola|taruhan judi|main slot|daftar slot|situs judol|link judol/i.test(lower);
+  const isJudiOnline = /\b(judol|slot|gacor|zeus|olympus|maxwin|sensational|scatter|pragmatic|togel|toto\s*macau|toto\s*gelap|bandar\s*toto|situs\s*toto|link\s*toto|sbobet|baccarat|roulette|kasino)\b|judi online|slot gacor|pola gacor|deposit pulsa|depo 10k|depo 20k|depo 25k|depo 50k|link slot|situs slot|bandar togel|toto macau|togel hk|togel sgp|agen slot|rtp live|rtp slot|link gacor|taruhan bola|taruhan judi|main slot|daftar slot|situs judol|link judol/i.test(lower);
 
   if (isJudiOnline) {
     return {

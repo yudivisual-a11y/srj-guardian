@@ -79,6 +79,13 @@ function inspectFastRules(rawText) {
   if (!text) return null;
   const lower = text.toLowerCase();
 
+  // Pengecualian Aman: Format Biodata Perkenalan (Nama, Asal Lembur, Domisili Jogja)
+  // Tidak boleh dianggap pelanggaran atau ancaman siber (misal nama 'Toto Budiarto', 'Judi', dsb bukan judol)
+  const isBiodataIntro = /\b(nama|asal\s*lembur|asal\s*kota|di\s*jogjana?)\s*[:=]/i.test(lower) || /•\s*nama/i.test(lower);
+  if (isBiodataIntro && !/https?:\/\/[^\s]+/i.test(text)) {
+    return null; // Mutlak aman, lewatkan langsung!
+  }
+
   // 1. Judi Online / Judol / Slot / Gacor
   const isJudol = /\b(slot|gacor|zeus|maxwin|olympus|pragmatic|mahjong|togel|toto\s*macau|sbobet|bet88|depo|wd|sensational|scatter|judol|judi\s*online)\b/i.test(lower) ||
     /slot777|slot88|rtp-slot|rtp-live|depo-pulsa|link-gacor/i.test(lower);
@@ -1135,7 +1142,7 @@ async function startWhatsAppDaemon(freshPairing = false) {
                   const threat = result.securityIncident.threatType;
                   const rawLower = (text || '').toLowerCase();
                   const isSaldoScam = /saldo.*masuk|cek saldo|penarikan|cairkan|klaim.*saldo|dana kaget|danakaget|hadiah|undian/i.test(rawLower);
-                  const isJudolLink = /slot|gacor|judol|judi|zeus|maxwin|olympus|togel|toto|sbobet|bet88|rtp|depo/i.test(rawLower);
+                  const isJudolLink = /slot|gacor|judol|judi\s*online|zeus|maxwin|olympus|togel|toto\s*macau|situs\s*toto|bandar\s*toto|sbobet|bet88|rtp|depo/i.test(rawLower);
 
                   let secTitle = '🛡️ *PERINGATAN KEAMANAN SIBER & ANTI-PENIPUAN* 🛡️';
                   let threatHeader = '';

@@ -992,41 +992,17 @@ async function startWhatsAppDaemon(freshPairing = false) {
 
           // =========================================================================
           // ANTI-SPOOFING / ANTI-DUPLIKASI TEMPLATE CYBER SECURITY
-          // Menghapus pesan anggota yang meniru / menyalin template bot resmi
+          // Menghapus pesan anggota yang meniru / menyalin template bot resmi (HAPUS SENYAP)
           // =========================================================================
           if (isGroup && inspectTemplateSpoofing(text)) {
-            console.log(`[DAEMON-ANTI-SPOOF] 🚨 Duplikasi template resmi terdeteksi dari ${senderName} (${senderJid}) di ${groupJid}! Menghapus langsung...`);
+            console.log(`[DAEMON-ANTI-SPOOF] 🚨 Duplikasi template resmi terdeteksi dari ${senderName} (${senderJid}) di ${groupJid}! Menghapus senyap tanpa klarifikasi...`);
 
-            // 1. LANGSUNG HAPUS PESAN DUPLIKAT DARI GRUP
+            // Langsung hapus pesan duplikat dari grup secara senyap
             await sock.sendMessage(groupJid, { delete: msg.key }).catch(e => {
               console.error('[DAEMON-ANTI-SPOOF] Gagal hapus pesan duplikat:', e.message);
             });
 
-            // 2. KASIH TAHU DENGAN BAHASA INDONESIA YANG JELAS, TEGAS & ENAK
-            const actualPnJid = msg.key?.participantAlt || (msg.key?.participant && !msg.key.participant.includes('@lid') ? msg.key.participant : senderJid);
-            const senderNumber = actualPnJid.replace(/[^0-9]/g, '');
-
-            const clarificationText = 
-              `🛡️ *PEMBERITAHUAN RESMI CYBER SECURITY SRJ* 🛡️\n` +
-              `_Sistem Keamanan & Marwah Paguyuban Sunda Rantau Jogja_\n\n` +
-              `Perhatian Rekan-rekan Warga Grup,\n` +
-              `Pesan dari @${senderNumber} telah *DIHAPUS* otomatis oleh sistem.\n\n` +
-              `📌 *Alasan*: Menyalin / Menirukan Format Template Resmi Cyber Security SRJ\n\n` +
-              `⚠️ *Klarifikasi Resmi*:\n` +
-              `Pesan yang baru saja dikirim adalah *DUPLIKAT / TIRUAN*, bukan peringatan asli dari sistem pengamanan siber paguyuban.\n\n` +
-              `💡 *Ketentuan Komunikasi Grup*:\n` +
-              `1. Seluruh peringatan keamanan dan tindakan moderasi hanya diterbitkan secara otomatis oleh akun resmi Cyber Security SRJ demi ketertiban bersama.\n` +
-              `2. Anggota dimohon untuk tidak menyalin, memalsukan, atau membuat lelucon menggunakan format template keamanan resmi.\n\n` +
-              `Mari bersama-sama menjaga obrolan grup tetap tertib, nyaman, dan guyub rukun. Hatur nuhun! Rahayu! 🤝`;
-
-            const mentionsList = Array.from(new Set([senderJid, actualPnJid, msg.key?.participant, msg.key?.participantAlt].filter(Boolean)));
-
-            await sock.sendMessage(groupJid, {
-              text: clarificationText,
-              mentions: mentionsList
-            }).catch(e => console.error('[DAEMON-ANTI-SPOOF] Gagal kirim klarifikasi:', e.message));
-
-            return; // Hentikan pemrosesan pesan duplikat
+            return; // Selesai, hapus langsung tanpa klarifikasi apa pun ke grup
           }
 
           // =========================================================================

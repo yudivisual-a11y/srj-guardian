@@ -968,9 +968,21 @@ async function startWhatsAppDaemon(freshPairing = false) {
           console.log(`[DAEMON-MSG] [${groupJid}] ${senderName}: ${text.slice(0, 45)}...`);
 
           // =========================================================================
-          // FITUR DETEKSI PERKENALAN ANGGOTA BARU DI CHAT (Misal: "Izin gabung...", "Salam kenal...")
+          // FITUR DETEKSI PERKENALAN ANGGOTA BARU DI CHAT (Izin Gabung, Salam Kenal, dll.)
           // =========================================================================
-          const isIntroMessage = /\b(izin\s*gabung|salam\s*kenal|nembe\s*gabung|abdi\s*perantau|anyar\s*gabung|baru\s*gabung|gabung\s*kang|gabung\s*teh|sampurasun.*gabung)\b/i.test(text);
+          const isIntroMessage = 
+            // 1. Izin / Ijin gabung / masuk / nimbrung / widi
+            /\b(i[zj]in\s*(gabung|masuk|lebet|nimbrung|join|ngiringan|widi|nyimak|silaturahmi)|nyuhunkeun\s*(widi|i[zj]in))\b/i.test(text) ||
+            // 2. Salam kenal / silaturahmi / panceg
+            /\b(salam\s*(kenal|silaturahm?i|panceg|dulur|wargi|kumaha|sadayana))\b/i.test(text) ||
+            // 3. Nembe / Anyar / Baru gabung
+            /\b(nembe\s*(gabung|lebet|ngiringan|aya|lebetan)|anyar\s*(gabung|lebet|ngiringan)|baru\s*(gabung|masuk|join)|warga\s*baru|anggota\s*baru|member\s*baru)\b/i.test(text) ||
+            // 4. Perkenalan / Nepangkeun / Kulonuwun
+            /\b(nepangkeun|perkenalkan\s*(nama|saya|abdi|urang)|kulonuwun|sampurasun)\b/i.test(text) ||
+            // 5. Menyebut perantau baru / orang Sunda yang baru merapat ke Jogja
+            /\b(abdi\s*perantau|urang\s*perantau|perantau\s*anyar|perantau\s*enggal|nembe\s*ka\s*jogja|nembe\s*di\s*jogja|anyar\s*di\s*jogja)\b/i.test(text) ||
+            // 6. Sapaan khas orang lembur yang baru nimbrung di grup
+            /\b(gabung\s*(kang|teh|lur|min|mang|om|a|aa|sadayana)|ngiring\s*(calik|nimbrung|ngiuhan|ngopi))\b/i.test(text);
 
           if (isIntroMessage && isGroup) {
             const dbCheck = readDb() || {};
@@ -978,11 +990,14 @@ async function startWhatsAppDaemon(freshPairing = false) {
               dbCheck.welcomedMembers = [];
             }
             const welcomedSet = new Set(dbCheck.welcomedMembers);
-            const senderNumber = senderJid.replace(/[^0-9]/g, '');
+
+            // Dapatkan nomor telepon asli (jika participant berupa LID, gunakan participantAlt)
+            const actualPnJid = msg.key?.participantAlt || (msg.key?.participant && !msg.key.participant.includes('@lid') ? msg.key.participant : senderJid);
+            const senderNumber = actualPnJid.replace(/[^0-9]/g, '');
             const myNum = sock.user?.id ? sock.user.id.split(':')[0].replace(/[^0-9]/g, '') : '';
 
             if (senderNumber && senderNumber !== myNum && !welcomedSet.has(senderNumber)) {
-              console.log(`[WELCOME-GUARD] 🤝 Deteksi perkenalan anggota baru di chat dari @${senderNumber}: "${text.slice(0, 30)}..."`);
+              console.log(`[WELCOME-GUARD] 🤝 Deteksi chat perkenalan anggota baru (@${senderNumber}): "${text.slice(0, 35)}..."`);
               welcomedSet.add(senderNumber);
               updateDb((db) => {
                 if (!Array.isArray(db.welcomedMembers)) db.welcomedMembers = [];
@@ -1005,9 +1020,11 @@ async function startWhatsAppDaemon(freshPairing = false) {
                 `• *Di Jogjana di mana* (Daerah/Wilayah di Jogja):\n\n` +
                 `Mugi-mugi betah, guyub rukun, berkah, sareng tiasa silih rojong di tanah perantauan. Rahayu! 🤝`;
 
+              const mentionsList = Array.from(new Set([senderJid, actualPnJid, msg.key?.participant, msg.key?.participantAlt].filter(Boolean)));
+
               await sock.sendMessage(groupJid, {
                 text: welcomeMessage,
-                mentions: [senderJid]
+                mentions: mentionsList
               }, { quoted: msg }).catch(err => console.error('[WELCOME-GUARD] Gagal kirim sambutan otomatis:', err.message));
             }
           }

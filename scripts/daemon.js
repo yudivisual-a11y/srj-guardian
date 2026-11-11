@@ -442,7 +442,7 @@ async function startWhatsAppDaemon(freshPairing = false) {
               `Mangga Kang/Teh nepangkeun supados langkung wanoh & akrab:\n` +
               `• *Nama*:\n` +
               `• *Asal Lembur* (Kab/Kota di Jabar/Banten):\n` +
-              `• *Di Jogjana di mana* (Kos/Kontrakan/Domisili):\n\n` +
+              `• *Di Jogjana di mana* (Daerah/Wilayah di Jogja):\n\n` +
               `Mugi-mugi betah, guyub rukun, berkah, sareng tiasa silih rojong di tanah perantauan. Rahayu! 🤝`;
 
             console.log(`[WELCOME-GUARD] Mengirim sapaan halus Cyber Security ke +${phoneNum} di grup ${groupJid}...`);

@@ -430,20 +430,16 @@ async function startWhatsAppDaemon(freshPairing = false) {
               }
             });
 
-            // Sapaan halus bernuansa paguyuban Sunda & perlindungan siber
+            // Sapaan halus bernuansa paguyuban Sunda ti Cyber Security (ramah & hangat tanpa himbauan kaku)
             const welcomeMessage = 
               `Sampurasun Kang/Teh @${phoneNum}! 🙏\n` +
               `Wilujeng sumping di grup resmi Paguyuban Sunda Rantau Jogja (SRJ).\n\n` +
               `🛡️ *Sapaan Ramah ti Cyber Security SRJ*:\n` +
               `Selamat bergabung di wadah silaturahmi perantau asal Tanah Sunda (Jawa Barat & Banten) di Daerah Istimewa Yogyakarta.\n\n` +
-              `Komunitas ini berlandaskan falsafah luhur leluhur urang Sunda:\n` +
+              `Paguyuban ini berlandaskan falsafah luhur leluhur urang Sunda:\n` +
               `✨ *Silih Asah, Silih Asih, Silih Asuh* ✨\n` +
               `_Nulung ka nu butuh, nalang ka nu susah._\n\n` +
-              `💡 *Himbauan Keamanan & Kenyamanan Bersama*:\n` +
-              `1. Waspadai tautan asing, modus penipuan saldo masuk/hadiah palsu, dan file mencurigakan (.apk).\n` +
-              `2. Jaga kerukunan, etika tutur kata yang santun, serta marwah paguyuban kita bersama.\n` +
-              `3. Hindari konten perjudian online (slot/judol), maksiat, atau provokasi.\n\n` +
-              `Cyber Security SRJ siap mendampingi ketenteraman grup 24 jam. Mugi-mugi betah, berkah, sareng guyub rukun di Jogja. Rahayu! 🤝`;
+              `Mugi-mugi betah, guyub rukun, berkah, sareng tiasa silih rojong di tanah perantauan. Rahayu! 🤝`;
 
             console.log(`[WELCOME-GUARD] Mengirim sapaan halus Cyber Security ke +${phoneNum} di grup ${groupJid}...`);
             await sock.sendMessage(groupJid, {

@@ -69,6 +69,7 @@ function writeWaState(stateUpdate) {
 let currentSock = null;
 let isInitializing = false;
 let currentPairingCode = null;
+let triggerSyncGroups = null;
 
 async function startWhatsAppDaemon(freshPairing = false) {
   if (isInitializing) return;
@@ -113,29 +114,30 @@ async function startWhatsAppDaemon(freshPairing = false) {
     let isSyncingGroups = false;
     let lastSyncTime = 0;
 
-    async function syncGroups() {
-      if (isSyncingGroups) return;
+    async function syncGroups(force = false) {
+      if (isSyncingGroups) return 0;
       const now = Date.now();
-      if (now - lastSyncTime < 15000) return; // Maksimal sinkronisasi sekali per 15 detik
+      if (!force && now - lastSyncTime < 10000) return 0; // Debounce 10 detik kecuali force
 
       isSyncingGroups = true;
       lastSyncTime = now;
+      let foundCount = 0;
 
       try {
         const myJid = sock.user?.id ? sock.user.id.split(':')[0] + '@s.whatsapp.net' : '';
         const phone = sock.user?.id ? '+' + sock.user.id.split(':')[0].replace(/[^0-9]/g, '') : '';
-        console.log(`[DAEMON-DISCOVERY] Memindai grup untuk nomor bot aktif (${phone})...`);
+        console.log(`[DAEMON-DISCOVERY] Memindai grup dari WhatsApp untuk nomor (${phone})...`);
         const participating = await sock.groupFetchAllParticipating();
-        const groups = Object.values(participating);
-        console.log(`[DAEMON-DISCOVERY] Ditemukan ${groups.length} grup di akun WhatsApp saat ini.`);
+        const groups = Object.values(participating || {});
+        foundCount = groups.length;
+        console.log(`[DAEMON-DISCOVERY] Ditemukan ${foundCount} grup di akun WhatsApp saat ini.`);
 
         const currentJids = new Set(groups.map(g => g.id));
 
         updateDb((db) => {
           if (!db.monitoredGroups) db.monitoredGroups = [];
 
-          // 1. FILTER: Hapus grup lama yang TIDAK ADA di nomor WhatsApp yang sedang aktif ini!
-          // (Mencegah grup dari nomor lain tetap tersisa di database)
+          // Ambil map grup yang sudah ada
           const existingMap = new Map();
           for (const m of db.monitoredGroups) {
             if (currentJids.has(m.groupJid)) {
@@ -146,22 +148,26 @@ async function startWhatsAppDaemon(freshPairing = false) {
           const updatedList = [];
 
           for (const g of groups) {
-            const isBotAdmin = g.participants?.some(p => p.id === myJid && (p.admin === 'admin' || p.admin === 'superadmin'));
+            const isBotAdmin = g.participants?.some(p => p.id === myJid && (p.admin === 'admin' || p.admin === 'superadmin')) || false;
             const existing = existingMap.get(g.id);
+            const isSrjOrSecurity = /srj|sunda|keamanan|security|rantau|jogja/i.test(g.subject || '');
 
             if (existing) {
-              // Pertahankan status pilihan manual admin (isActive tetap sesuai setting sebelumnya)
               existing.groupName = g.subject || existing.groupName;
               existing.autoDeleteThreats = isBotAdmin;
+              // Jika grup bernuansa SRJ / Keamanan, pastikan aktif
+              if (isSrjOrSecurity && !existing.isActive) {
+                existing.isActive = true;
+              }
               updatedList.push(existing);
             } else {
-              // GRUP BARU TERDETEKSI: WAJIB DEFAULT NONAKTIF (isActive: false)
-              // Admin yang akan mengaktifkan secara manual sesuai instruksi user!
+              // GRUP BARU TERDETEKSI:
+              // Otomatis aktifkan jika bernuansa SRJ/Keamanan atau paguyuban!
               const newGrp = {
                 id: `grp-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
                 groupJid: g.id,
                 groupName: g.subject || 'Grup WhatsApp',
-                isActive: false, // <-- DEFAULT NONAKTIF! Admin aktifkan manual
+                isActive: isSrjOrSecurity, // Otomatis aktif untuk grup SRJ!
                 autoScanUrls: true,
                 autoModContent: true,
                 socialCareEnabled: true,
@@ -170,7 +176,7 @@ async function startWhatsAppDaemon(freshPairing = false) {
                 createdAt: new Date().toISOString()
               };
               updatedList.push(newGrp);
-              console.log(`[DAEMON-DISCOVERY] Grup terdeteksi (NONAKTIF default): "${g.subject}" (Admin: ${isBotAdmin ? 'YA' : 'BELUM'})`);
+              console.log(`[DAEMON-DISCOVERY] Grup terdeteksi: "${g.subject}" (Status: ${isSrjOrSecurity ? 'OTOMATIS AKTIF' : 'NONAKTIF'}, Admin: ${isBotAdmin ? 'YA' : 'BELUM'})`);
             }
           }
 
@@ -182,13 +188,16 @@ async function startWhatsAppDaemon(freshPairing = false) {
           console.log('[DAEMON-DISCOVERY] Rate-limit WhatsApp aktif, pending sinkronisasi ulang selama 60 detik.');
           setTimeout(() => {
             lastSyncTime = 0;
-            syncGroups();
+            syncGroups(true);
           }, 60000);
         }
       } finally {
         isSyncingGroups = false;
       }
+      return foundCount;
     }
+
+    triggerSyncGroups = syncGroups;
 
     sock.ev.on('connection.update', async (update) => {
       const { connection, lastDisconnect, qr } = update;
@@ -277,20 +286,36 @@ async function startWhatsAppDaemon(freshPairing = false) {
           db.whatsappConnection.coAdminVerified = true;
         });
 
-        // Tunggu 3.5 detik agar koneksi WebSocket stabil sebelum query grup ke WhatsApp
+        // Tunggu 2.5 detik agar koneksi WebSocket stabil sebelum query grup ke WhatsApp
         setTimeout(async () => {
-          await syncGroups();
-        }, 3500);
+          await syncGroups(true);
+        }, 2500);
       }
     });
 
-    sock.ev.on('groups.update', async () => {
-      await syncGroups();
+    sock.ev.on('groups.update', async (ev) => {
+      console.log('[DAEMON-EVENT] groups.update terdeteksi!');
+      await syncGroups(true);
     });
 
-    sock.ev.on('group-participants.update', async () => {
-      await syncGroups();
+    sock.ev.on('groups.upsert', async (newGroups) => {
+      console.log(`[DAEMON-EVENT] groups.upsert terdeteksi: ${newGroups?.length || 0} grup baru.`);
+      await syncGroups(true);
     });
+
+    sock.ev.on('group-participants.update', async (ev) => {
+      console.log(`[DAEMON-EVENT] group-participants.update: ${ev.id} (${ev.action})`);
+      await syncGroups(true);
+    });
+
+    // Auto-sync otomatis setiap 30 detik agar jika bot baru dimasukkan ke grup langsung tercatat
+    const periodicGroupSync = setInterval(async () => {
+      try {
+        if (currentSock && sock?.user?.id) {
+          await syncGroups(false);
+        }
+      } catch (e) {}
+    }, 30000);
 
     // =========================================================================
     // TAMENG PRIVASI 1: AUTO-REJECT PANGGILAN SUARA / VIDEO (ANTI-STALKER)
@@ -373,11 +398,50 @@ async function startWhatsAppDaemon(freshPairing = false) {
             continue; // Hentikan di sini, jangan teruskan pesan japri ke pipeline moderasi grup
           }
 
-          // FILTER KETAT: Jika pesan berasal dari grup, HANYA proses jika grup telah diaktifkan manual oleh admin!
-          const dbCheck = readDb();
-          const targetGroup = dbCheck?.monitoredGroups?.find(g => g.groupJid === groupJid);
+          // =========================================================================
+          // DETEKSI OTOMATIS & PEMANTAUAN GRUP WHATSAPP
+          // =========================================================================
+          let dbCheck = readDb();
+          let targetGroup = dbCheck?.monitoredGroups?.find(g => g.groupJid === groupJid);
+
+          // Jika grup baru belum terdaftar di database, otomatis deteksi & daftarkan!
+          if (!targetGroup) {
+            console.log(`[DAEMON-DISCOVERY] 🚀 Aktivitas pesan terdeteksi dari grup baru: ${groupJid}`);
+            try {
+              const meta = await sock.groupMetadata(groupJid).catch(() => null);
+              const myJid = sock.user?.id ? sock.user.id.split(':')[0] + '@s.whatsapp.net' : '';
+              const isBotAdmin = meta?.participants?.some(p => p.id === myJid && (p.admin === 'admin' || p.admin === 'superadmin')) || false;
+              const groupSubject = meta?.subject || 'Grup WhatsApp Baru';
+              const isSrjOrSecurity = /srj|sunda|keamanan|security|rantau|jogja/i.test(groupSubject);
+
+              targetGroup = {
+                id: `grp-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+                groupJid,
+                groupName: groupSubject,
+                isActive: true, // Otomatis aktifkan agar langsung melindungi grup!
+                autoScanUrls: true,
+                autoModContent: true,
+                socialCareEnabled: true,
+                autoDeleteThreats: isBotAdmin,
+                rulesSummary: meta?.desc || 'Grup Komunitas Sunda Rantau Jogja. Silih Asah, Silih Asih, Silih Asuh.',
+                createdAt: new Date().toISOString()
+              };
+
+              updateDb((db) => {
+                if (!db.monitoredGroups) db.monitoredGroups = [];
+                if (!db.monitoredGroups.some(g => g.groupJid === groupJid)) {
+                  db.monitoredGroups.push(targetGroup);
+                }
+              });
+
+              console.log(`[DAEMON-DISCOVERY] ✅ Grup "${groupSubject}" berhasil didaftarkan & OTOMATIS DIAKTIFKAN untuk perlindungan siber! (Admin: ${isBotAdmin ? 'YA' : 'BELUM'})`);
+            } catch (metaErr) {
+              console.error('[DAEMON-DISCOVERY] Gagal mengambil metadata grup:', metaErr.message);
+            }
+          }
+
           if (!targetGroup || !targetGroup.isActive) {
-            // Grup belum diaktifkan oleh admin (default nonaktif), abaikan pesan demi privasi
+            // Jika grup sengaja dinonaktifkan manual oleh admin di dashboard, abaikan pesan
             continue;
           }
 
@@ -937,6 +1001,30 @@ setInterval(async () => {
       }
       setTimeout(() => startWhatsAppDaemon(true), 1000);
       fs.writeFileSync(RESP_FILE, JSON.stringify({ id: cmd.id, success: true }, null, 2));
+    } else if (cmd.command === 'SYNC_GROUPS' || cmd.command === 'REFRESH_GROUPS') {
+      console.log('[DAEMON-IPC] Memproses permintaan sinkronisasi paksa grup...');
+      try {
+        let count = 0;
+        if (triggerSyncGroups) {
+          count = await triggerSyncGroups(true);
+        }
+        const dbNow = readDb();
+        const total = dbNow?.monitoredGroups?.length || count;
+        console.log(`[DAEMON-IPC] Sinkronisasi selesai: ${total} grup terdaftar.`);
+        fs.writeFileSync(RESP_FILE, JSON.stringify({
+          id: cmd.id,
+          success: true,
+          groupsCount: total,
+          message: `Berhasil menemukan dan menyinkronkan ${total} grup WhatsApp.`
+        }, null, 2));
+      } catch (syncErr) {
+        console.error('[DAEMON-IPC] Gagal sinkronisasi grup:', syncErr.message);
+        fs.writeFileSync(RESP_FILE, JSON.stringify({
+          id: cmd.id,
+          success: false,
+          error: syncErr.message || 'Gagal sinkronisasi grup.'
+        }, null, 2));
+      }
     } else if (cmd.command === 'DISCONNECT') {
       console.log('[DAEMON-IPC] Memutuskan sesi WhatsApp...');
       if (currentSock) {

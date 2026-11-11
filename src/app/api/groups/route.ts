@@ -30,6 +30,20 @@ export async function PATCH(req: Request) {
   }
 }
 
+export async function PUT(req: Request) {
+  try {
+    const { isActive } = await req.json();
+    const count = db.setAllGroupsActive(Boolean(isActive));
+    return NextResponse.json({
+      success: true,
+      count,
+      message: `Semua (${count}) grup berhasil di-${isActive ? 'aktifkan' : 'nonaktifkan'}.`
+    });
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();

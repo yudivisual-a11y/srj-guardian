@@ -118,6 +118,46 @@ class BaileysManager {
     throw new Error('Timeout: Daemon WhatsApp tidak merespons dalam 10 detik. Pastikan worker aktif.');
   }
 
+  public async syncGroups(): Promise<{ success: boolean; groupsCount: number; message?: string }> {
+    this.ensureDataDir();
+    const cmdId = `cmd-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+
+    if (fs.existsSync(RESP_FILE)) {
+      try { fs.unlinkSync(RESP_FILE); } catch (e) {}
+    }
+
+    const commandPayload = {
+      id: cmdId,
+      command: 'SYNC_GROUPS',
+      timestamp: Date.now()
+    };
+    fs.writeFileSync(CMD_FILE, JSON.stringify(commandPayload, null, 2), 'utf-8');
+
+    const startTime = Date.now();
+    while (Date.now() - startTime < 8000) {
+      await new Promise(r => setTimeout(r, 200));
+      if (fs.existsSync(RESP_FILE)) {
+        try {
+          const resp = JSON.parse(fs.readFileSync(RESP_FILE, 'utf-8'));
+          if (resp.id === cmdId) {
+            fs.unlinkSync(RESP_FILE);
+            if (resp.success) {
+              return { success: true, groupsCount: resp.groupsCount || 0, message: resp.message };
+            } else {
+              throw new Error(resp.error || 'Gagal menyinkronkan grup.');
+            }
+          }
+        } catch (e: any) {
+          if (e.message && e.message.includes('Gagal menyinkronkan')) throw e;
+        }
+      }
+    }
+
+    // Fallback: baca dari DB jika timeout IPC
+    const groups = db.getMonitoredGroups();
+    return { success: true, groupsCount: groups.length, message: `Menampilkan ${groups.length} grup tersimpan.` };
+  }
+
   public async startPairing(): Promise<{ pairingMethod: string }> {
     this.ensureDataDir();
     const cmdId = `cmd-${Date.now()}-${Math.floor(Math.random() * 1000)}`;

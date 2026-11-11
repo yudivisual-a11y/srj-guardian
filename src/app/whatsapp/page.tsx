@@ -51,6 +51,8 @@ export default function WhatsAppPage() {
   // Search & Filter State for Groups
   const [groupSearch, setGroupSearch] = useState('');
   const [groupFilter, setGroupFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
+  const [syncingGroups, setSyncingGroups] = useState(false);
+  const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
 
   const fetchData = async () => {
     try {
@@ -189,6 +191,43 @@ export default function WhatsAppPage() {
     }
   };
 
+  const handleSyncGroups = async () => {
+    setSyncingGroups(true);
+    setSyncFeedback('Memindai seluruh grup dari server WhatsApp bot...');
+    try {
+      const res = await fetch('/api/groups/sync', { method: 'POST' });
+      const json = await res.json();
+      if (json.success) {
+        setSyncFeedback(json.message || `Ditemukan ${json.groupsCount} grup.`);
+        await fetchData();
+        setTimeout(() => setSyncFeedback(null), 5000);
+      } else {
+        setSyncFeedback(json.error || 'Gagal menyinkronkan grup.');
+      }
+    } catch (err: any) {
+      setSyncFeedback('Gagal menghubungi server untuk sinkronisasi grup.');
+    } finally {
+      setSyncingGroups(false);
+    }
+  };
+
+  const handleActivateAll = async () => {
+    try {
+      const res = await fetch('/api/groups', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isActive: true })
+      });
+      if (res.ok) {
+        setSyncFeedback('Semua grup berhasil diaktifkan untuk dipantau!');
+        await fetchData();
+        setTimeout(() => setSyncFeedback(null), 4000);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const handleCreateGroup = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newGroupName.trim()) return;
@@ -257,31 +296,42 @@ export default function WhatsAppPage() {
           </p>
         </div>
 
-        {/* Tab Switcher */}
-        <div className="flex items-center gap-1 bg-charcoal-900 p-1 rounded-xl border border-charcoal-800">
+        {/* Tab Switcher & Quick Actions */}
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 bg-charcoal-900 p-1 rounded-xl border border-charcoal-800">
+            <button
+              onClick={() => setActiveTab('CONNECTION')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                activeTab === 'CONNECTION' ? 'bg-charcoal-750 text-white shadow-sm' : 'text-charcoal-400 hover:text-white'
+              }`}
+            >
+              Koneksi Bot
+            </button>
+            <button
+              onClick={() => setActiveTab('GROUPS')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                activeTab === 'GROUPS' ? 'bg-charcoal-750 text-white shadow-sm' : 'text-charcoal-400 hover:text-white'
+              }`}
+            >
+              Grup Dipantau ({groups.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('ARCHITECTURE')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                activeTab === 'ARCHITECTURE' ? 'bg-srjgold-500/20 text-srjgold-300 shadow-sm' : 'text-charcoal-400 hover:text-white'
+              }`}
+            >
+              Analisis Teknis API
+            </button>
+          </div>
+
           <button
-            onClick={() => setActiveTab('CONNECTION')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
-              activeTab === 'CONNECTION' ? 'bg-charcoal-750 text-white shadow-sm' : 'text-charcoal-400 hover:text-white'
-            }`}
+            onClick={handleSyncGroups}
+            disabled={syncingGroups}
+            title="Segarkan & Sinkronkan Seluruh Grup WhatsApp"
+            className="p-2.5 rounded-xl bg-charcoal-900 hover:bg-charcoal-800 text-srjgold-400 border border-charcoal-800 transition flex items-center justify-center shrink-0 shadow-sm hover:border-srjgold-500/40"
           >
-            Koneksi Bot
-          </button>
-          <button
-            onClick={() => setActiveTab('GROUPS')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
-              activeTab === 'GROUPS' ? 'bg-charcoal-750 text-white shadow-sm' : 'text-charcoal-400 hover:text-white'
-            }`}
-          >
-            Grup Dipantau ({groups.length})
-          </button>
-          <button
-            onClick={() => setActiveTab('ARCHITECTURE')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
-              activeTab === 'ARCHITECTURE' ? 'bg-srjgold-500/20 text-srjgold-300 shadow-sm' : 'text-charcoal-400 hover:text-white'
-            }`}
-          >
-            Analisis Teknis API
+            <RefreshCw className={`w-4 h-4 ${syncingGroups ? 'animate-spin' : ''}`} />
           </button>
         </div>
       </div>
@@ -639,6 +689,22 @@ export default function WhatsAppPage() {
               </div>
             </div>
 
+            {/* Feedback Banner */}
+            {syncFeedback && (
+              <div className="p-3.5 rounded-xl bg-srjgold-500/15 border border-srjgold-500/40 text-srjgold-200 text-xs flex items-center justify-between gap-3 shadow-md">
+                <div className="flex items-center gap-2">
+                  <RefreshCw className={`w-4 h-4 text-srjgold-400 ${syncingGroups ? 'animate-spin' : ''}`} />
+                  <span className="font-medium">{syncFeedback}</span>
+                </div>
+                <button 
+                  onClick={() => setSyncFeedback(null)} 
+                  className="text-xs text-charcoal-400 hover:text-white font-bold"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+
             <div className="glass-panel p-5 rounded-2xl border-charcoal-800 space-y-4">
               {/* Header with Search and Actions */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-charcoal-800">
@@ -647,18 +713,38 @@ export default function WhatsAppPage() {
                   <h3 className="text-sm font-bold text-white">Kelola Pemantauan Grup</h3>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={handleSyncGroups}
+                    disabled={syncingGroups}
+                    className="px-3.5 py-1.5 rounded-xl bg-srjgold-500/20 hover:bg-srjgold-500/30 text-srjgold-300 border border-srjgold-500/40 text-xs font-bold transition flex items-center gap-2 shadow-sm"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${syncingGroups ? 'animate-spin' : ''}`} />
+                    <span>{syncingGroups ? 'Memindai WhatsApp...' : '🔄 Sinkronkan / Refresh Grup'}</span>
+                  </button>
+
+                  {inactiveCount > 0 && (
+                    <button
+                      onClick={handleActivateAll}
+                      className="px-3 py-1.5 rounded-xl bg-srjgreen-600 hover:bg-srjgreen-500 text-charcoal-950 font-bold text-xs transition flex items-center gap-1.5 shadow-glow-green"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>Aktifkan Semua ({groups.length})</span>
+                    </button>
+                  )}
+
                   {activeCount > 0 && (
                     <button
                       onClick={handleDeactivateAll}
                       className="px-3 py-1.5 rounded-xl bg-charcoal-800 hover:bg-red-950/40 text-charcoal-400 hover:text-red-300 text-xs font-semibold border border-charcoal-700 hover:border-red-800 transition"
                     >
-                      Nonaktifkan Semua ({activeCount})
+                      Nonaktifkan Semua
                     </button>
                   )}
+
                   <button
                     onClick={() => setShowAddGroup(!showAddGroup)}
-                    className="px-3 py-1.5 rounded-xl bg-srjgreen-600 hover:bg-srjgreen-500 text-charcoal-950 font-bold text-xs transition flex items-center gap-1.5 shadow-glow-green"
+                    className="px-3 py-1.5 rounded-xl bg-charcoal-750 hover:bg-charcoal-700 text-charcoal-200 font-semibold text-xs transition flex items-center gap-1.5 border border-charcoal-600"
                   >
                     <Plus className="w-3.5 h-3.5" />
                     <span>Tambah Manual</span>

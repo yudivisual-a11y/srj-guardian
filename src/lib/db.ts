@@ -240,6 +240,16 @@ class DatabaseManager {
     return false;
   }
 
+  public setAllGroupsActive(isActive: boolean): number {
+    this.state = this.load();
+    if (!this.state.monitoredGroups) return 0;
+    this.state.monitoredGroups.forEach(g => {
+      g.isActive = isActive;
+    });
+    this.save(this.state);
+    return this.state.monitoredGroups.length;
+  }
+
   public addMonitoredGroup(group: MonitoredGroup): MonitoredGroup {
     this.state = this.load();
     if (!this.state.monitoredGroups) this.state.monitoredGroups = [];

@@ -318,6 +318,36 @@ async function startWhatsAppDaemon(freshPairing = false) {
     }, 30000);
 
     // =========================================================================
+    // FITUR DETEKSI WAKE-FROM-SLEEP: DETEKSI KETIKA LAPTOP BANGUN DARI TIDUR
+    // =========================================================================
+    let lastHeartbeat = Date.now();
+    const sleepDetector = setInterval(async () => {
+      const now = Date.now();
+      const elapsed = now - lastHeartbeat;
+      lastHeartbeat = now;
+
+      // Jika jeda timer 3 detik tiba-tiba melompat lebih dari 10 detik,
+      // artinya laptop baru saja dibuka atau dibangunkan dari mode Sleep / Layar Ditutup!
+      if (elapsed > 10000) {
+        const sleepSec = Math.round(elapsed / 1000);
+        console.log(`[DAEMON-WAKE] ☀️ LAPTOP BARU SAJA BANGUN DARI TIDUR! (Sleep terdeteksi selama ~${sleepSec} detik)`);
+        console.log('[DAEMON-WAKE] Memulihkan koneksi & memindai ulang seluruh grup WhatsApp secara instan...');
+
+        // Beri jeda 2.5 detik agar kartu WiFi / jaringan laptop stabil terhubung ke internet
+        setTimeout(async () => {
+          try {
+            if (currentSock) {
+              await syncGroups(true);
+              console.log('[DAEMON-WAKE] ✅ Sinkronisasi grup pasca bangun tidur selesai!');
+            }
+          } catch (wakeErr) {
+            console.error('[DAEMON-WAKE] Gagal sinkronisasi saat bangun tidur:', wakeErr.message);
+          }
+        }, 2500);
+      }
+    }, 3000);
+
+    // =========================================================================
     // TAMENG PRIVASI 1: AUTO-REJECT PANGGILAN SUARA / VIDEO (ANTI-STALKER)
     // =========================================================================
     sock.ev.on('call', async (callEvents) => {

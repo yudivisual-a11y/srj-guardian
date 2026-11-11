@@ -433,7 +433,8 @@ async function startWhatsAppDaemon(freshPairing = false) {
           const myNum = sock.user?.id ? sock.user.id.split(':')[0].replace(/[^0-9]/g, '') : '';
 
           for (const participant of ev.participants) {
-            const phoneNum = participant.replace(/[^0-9]/g, '');
+            const rawParticipant = typeof participant === 'string' ? participant : (participant?.id || participant?.jid || '');
+            const phoneNum = rawParticipant.replace(/[^0-9]/g, '');
             if (!phoneNum || phoneNum === myNum) continue;
 
             // Aturan ketat: per nomor hanya 1 kali sambutan seumur hidup
@@ -469,7 +470,7 @@ async function startWhatsAppDaemon(freshPairing = false) {
             console.log(`[WELCOME-GUARD] Mengirim sapaan halus Cyber Security ke +${phoneNum} di grup ${groupJid}...`);
             await sock.sendMessage(groupJid, {
               text: welcomeMessage,
-              mentions: [participant]
+              mentions: [rawParticipant]
             }).catch(err => console.error('[WELCOME-GUARD] Gagal kirim sambutan:', err.message));
           }
         }

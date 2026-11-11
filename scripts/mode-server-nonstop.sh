@@ -18,20 +18,30 @@ read -p "Masukkan pilihan [1-4]: " pilihan
 case $pilihan in
   1)
     echo ""
-    echo "Mengaktifkan mode server nonstop (laptop tidak akan tidur meski ditutup layarnya)..."
+    echo "Mengaktifkan mode server nonstop 24/7 di MacBook..."
     echo "Harap masukkan password Mac Anda jika diminta:"
     sudo pmset -a disablesleep 1
+    sudo pmset -a networkoversleep 1
+    sudo pmset -a womp 1
+    sudo pmset -a standby 0
+    sudo pmset -a autopoweroff 0
     echo ""
-    echo "✅ SUKSES! Mode Server Nonstop AKTIF."
-    echo "Sekarang laptop MacBook Anda bisa ditutup layarnya dan bot WhatsApp akan tetap siaga 24 jam online!"
+    echo "✅ SUKSES! Mode Server Nonstop 24/7 AKTIF PENUH:"
+    echo "  • WiFi tetap menyala terus-menerus (networkoversleep 1)"
+    echo "  • Tidak akan mati/hibernasi setelah berjam-jam (standby 0 & autopoweroff 0)"
+    echo "  • Sistem tetap hidup meski layar mati atau laptop ditutup rapat (disablesleep 1)"
+    echo "Sekarang bot WhatsApp akan siaga 24 jam nonstop tanpa pernah terputus!"
     ;;
   2)
     echo ""
-    echo "Mengembalikan setelan normal tidur MacBook..."
+    echo "Mengembalikan setelan tidur normal bawaan MacBook..."
     echo "Harap masukkan password Mac Anda jika diminta:"
     sudo pmset -a disablesleep 0
+    sudo pmset -a networkoversleep 0
+    sudo pmset -a standby 1
+    sudo pmset -a autopoweroff 1
     echo ""
-    echo "✅ SUKSES! Setelan tidur normal telah dikembalikan."
+    echo "✅ SUKSES! Setelan daya bawaan Mac telah dipulihkan."
     ;;
   3)
     echo ""

@@ -215,11 +215,21 @@ async function startWhatsAppDaemon(freshPairing = false) {
       syncFullHistory: false,
       connectTimeoutMs: 60000,
       defaultQueryTimeoutMs: 60000,
-      keepAliveIntervalMs: 25000
+      keepAliveIntervalMs: 15000
     });
 
     currentSock = sock;
     isInitializing = false;
+
+    // Active Network Keepalive Heartbeat: Jaga WiFi Mac & Socket tetap bangun 24 jam nonstop
+    const networkKeepaliveInterval = setInterval(() => {
+      try {
+        require('dns').lookup('web.whatsapp.com', () => {});
+        if (sock?.ws && sock.ws.readyState === 1) {
+          sock.ws.ping();
+        }
+      } catch (e) {}
+    }, 15000);
 
     sock.ev.on('creds.update', saveCreds);
 
@@ -341,6 +351,7 @@ async function startWhatsAppDaemon(freshPairing = false) {
       }
 
       if (connection === 'close') {
+        clearInterval(networkKeepaliveInterval);
         const statusCode = lastDisconnect?.error?.output?.statusCode;
         const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
         console.log(`[DAEMON] Connection closed (${statusCode}). Reconnecting: ${shouldReconnect}`);
@@ -351,7 +362,10 @@ async function startWhatsAppDaemon(freshPairing = false) {
 
         if (shouldReconnect) {
           writeWaState({ status: 'PAIRING' });
-          setTimeout(() => startWhatsAppDaemon(false), 3000);
+          isInitializing = false;
+          try { if (currentSock) currentSock.end(new Error('Connection closed, reconnecting')); } catch (e) {}
+          currentSock = null;
+          setTimeout(() => startWhatsAppDaemon(false), 2000);
         } else {
           // Logged out
           console.log('[DAEMON] Sesi WhatsApp telah logout.');

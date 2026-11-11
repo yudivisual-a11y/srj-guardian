@@ -171,6 +171,12 @@ function inspectTemplateSpoofing(rawText) {
   if (!text) return false;
   const lower = text.toLowerCase();
 
+  // Pengecualian mutlak: Jika anggota meng-copy template biodata perkenalan (Nama, Asal Lembur, Di Jogja mana)
+  // atau sedang mengisi data perkenalan, MAKA JANGAN PERNAH DIHAPUS!
+  if (/\b(nama|asal\s*lembur|asal\s*kota|di\s*jogjana?)\s*[:=]/i.test(lower) || /•\s*nama/i.test(lower)) {
+    return false;
+  }
+
   const isSpoofing = 
     /srj\s*(guardian|cyber\s*guardian)/i.test(lower) ||
     /sistem\s*keamanan\s*siber/i.test(lower) ||
@@ -489,8 +495,8 @@ async function startWhatsAppDaemon(freshPairing = false) {
               }
             });
 
-            // Sapaan halus bernuansa paguyuban Sunda ti Cyber Security + ajakan perkenalan diri
-            const welcomeMessage = 
+            // 1. Pesan Pertama: Sapaan Ramah ti Cyber Security SRJ
+            const welcomeGreeting = 
               `Sampurasun Kang/Teh @${phoneNum}! 🙏\n` +
               `Wilujeng sumping di grup resmi Paguyuban Sunda Rantau Jogja (SRJ).\n\n` +
               `🛡️ *Sapaan Ramah ti Cyber Security SRJ*:\n` +
@@ -498,17 +504,30 @@ async function startWhatsAppDaemon(freshPairing = false) {
               `Paguyuban ini berlandaskan falsafah luhur leluhur urang Sunda:\n` +
               `✨ *Silih Asah, Silih Asih, Silih Asuh* ✨\n` +
               `_Nulung ka nu butuh, nalang ka nu susah._\n\n` +
-              `Mangga Kang/Teh nepangkeun supados langkung wanoh & akrab:\n` +
-              `• *Nama*:\n` +
-              `• *Asal Lembur* (Kab/Kota di Jabar/Banten):\n` +
-              `• *Di Jogjana di mana* (Daerah/Wilayah di Jogja):\n\n` +
               `Mugi-mugi betah, guyub rukun, berkah, sareng tiasa silih rojong di tanah perantauan. Rahayu! 🤝`;
 
-            console.log(`[WELCOME-GUARD] Mengirim sapaan halus Cyber Security ke +${phoneNum} di grup ${groupJid}...`);
+            // 2. Pesan Kedua: Format Biodata Khusus untuk Disalin & Diisi Anggota Baru
+            const biodataTemplate = 
+              `Mangga Kang/Teh disalin (copy) kanggo nepangkeun supados langkung wanoh & akrab:\n\n` +
+              `• *Nama*:\n` +
+              `• *Asal Lembur* (Kab/Kota di Jabar/Banten):\n` +
+              `• *Di Jogjana di mana* (Daerah/Wilayah di Jogja):`;
+
+            console.log(`[WELCOME-GUARD] Mengirim sapaan resmi (Pesan 1) ke +${phoneNum} di grup ${groupJid}...`);
             await sock.sendMessage(groupJid, {
-              text: welcomeMessage,
+              text: welcomeGreeting,
               mentions: [rawParticipant]
             }).catch(err => console.error('[WELCOME-GUARD] Gagal kirim sambutan:', err.message));
+
+            // Jeda 1 detik lalu kirim format biodata perkenalan (Pesan 2)
+            setTimeout(async () => {
+              try {
+                console.log(`[WELCOME-GUARD] Mengirim format biodata perkenalan (Pesan 2) ke grup ${groupJid}...`);
+                await sock.sendMessage(groupJid, { text: biodataTemplate });
+              } catch (e) {
+                console.error('[WELCOME-GUARD] Gagal kirim template biodata:', e.message);
+              }
+            }, 1000);
           }
         }
       } catch (err) {
@@ -951,7 +970,8 @@ async function startWhatsAppDaemon(freshPairing = false) {
                 }
               });
 
-              const welcomeMessage = 
+              // 1. Pesan Pertama: Sapaan Ramah ti Cyber Security SRJ
+              const welcomeGreeting = 
                 `Sampurasun Kang/Teh @${targetNumberSafe}! 🙏\n` +
                 `Wilujeng sumping di grup resmi Paguyuban Sunda Rantau Jogja (SRJ).\n\n` +
                 `🛡️ *Sapaan Ramah ti Cyber Security SRJ*:\n` +
@@ -959,17 +979,31 @@ async function startWhatsAppDaemon(freshPairing = false) {
                 `Paguyuban ini berlandaskan falsafah luhur leluhur urang Sunda:\n` +
                 `✨ *Silih Asah, Silih Asih, Silih Asuh* ✨\n` +
                 `_Nulung ka nu butuh, nalang ka nu susah._\n\n` +
-                `Mangga Kang/Teh nepangkeun supados langkung wanoh & akrab:\n` +
-                `• *Nama*:\n` +
-                `• *Asal Lembur* (Kab/Kota di Jabar/Banten):\n` +
-                `• *Di Jogjana di mana* (Daerah/Wilayah di Jogja):\n\n` +
                 `Mugi-mugi betah, guyub rukun, berkah, sareng tiasa silih rojong di tanah perantauan. Rahayu! 🤝`;
 
-              console.log(`[CMD-06] Mengirim sapaan manual atas perintah bot 06 ke @${targetNumberSafe} di ${groupJid}`);
+              // 2. Pesan Kedua: Format Biodata Khusus untuk Disalin & Diisi
+              const biodataTemplate = 
+                `Mangga Kang/Teh disalin (copy) kanggo nepangkeun supados langkung wanoh & akrab:\n\n` +
+                `• *Nama*:\n` +
+                `• *Asal Lembur* (Kab/Kota di Jabar/Banten):\n` +
+                `• *Di Jogjana di mana* (Daerah/Wilayah di Jogja):`;
+
+              console.log(`[CMD-06] Mengirim sapaan manual (Pesan 1) atas perintah bot 06 ke @${targetNumberSafe} di ${groupJid}`);
               await sock.sendMessage(groupJid, {
-                text: welcomeMessage,
+                text: welcomeGreeting,
                 mentions: [targetSenderSafe]
               }, { quoted: msg }).catch(e => console.error('[CMD-06] Gagal kirim sambutan:', e.message));
+
+              // Jeda 1 detik lalu kirim format biodata perkenalan (Pesan 2)
+              setTimeout(async () => {
+                try {
+                  console.log(`[CMD-06] Mengirim format biodata perkenalan (Pesan 2) ke grup ${groupJid}...`);
+                  await sock.sendMessage(groupJid, { text: biodataTemplate });
+                } catch (e) {
+                  console.error('[CMD-06] Gagal kirim template biodata:', e.message);
+                }
+              }, 1000);
+
               return;
             }
           }

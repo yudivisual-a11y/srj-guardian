@@ -105,6 +105,7 @@ export async function analyzeContentWithGemini(
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          signal: AbortSignal.timeout(2000),
           body: JSON.stringify({
             contents: [{ parts }],
             generationConfig: {

@@ -71,6 +71,97 @@ let isInitializing = false;
 let currentPairingCode = null;
 let triggerSyncGroups = null;
 
+// =========================================================================
+// JALUR KILAT (FAST-PATH RULES): DETEKSI INSTAN TANPA JEDA (<50ms)
+// =========================================================================
+function inspectFastRules(rawText) {
+  const text = (rawText || '').trim();
+  if (!text) return null;
+  const lower = text.toLowerCase();
+
+  // 1. Judi Online / Judol / Slot / Gacor
+  const isJudol = /\b(slot|gacor|zeus|maxwin|olympus|pragmatic|mahjong|togel|toto\s*macau|sbobet|bet88|depo|wd|sensational|scatter|judol|judi\s*online)\b/i.test(lower) ||
+    /slot777|slot88|rtp-slot|rtp-live|depo-pulsa|link-gacor/i.test(lower);
+  if (isJudol) {
+    return {
+      type: 'JUDI_ONLINE',
+      category: 'MODERATION',
+      rule: 'JUDI_ONLINE',
+      title: '🎰 *PERINGATAN KERAS DARI CYBER SECURITY: LINK JUDI ONLINE (JUDOL)* 🎰',
+      threatHeader: '📌 *Terdeteksi*: Promosi Tautan / Ajakan Judi Online (Slot Gacor / Togel / Taruhan Online)',
+      advice: '⚠️ *PERINGATAN KERAS DARI CYBER SECURITY*:\n' +
+        'Penyebaran tautan perjudian online melanggar hukum RI (Pasal 27 ayat 2 UU ITE) serta dilarang keras di komunitas SRJ.\n\n' +
+        '🛑 *SANKSI KHUSUS JUDOL*:\n' +
+        '*1 KALI LAGI* terdeteksi membagikan tautan/ajakan judol, nomor Anda akan *LANGSUNG DI-KICK & DIBLOKIR PERMANEN* dari seluruh grup jaringan SRJ!'
+    };
+  }
+
+  // 2. APK Malicious / Sniffer Trojan
+  const isApk = /\.apk\b/i.test(lower) || /undangan.*\.apk|paket.*\.apk|tilang.*\.apk|tagihan.*\.apk/i.test(lower);
+  if (isApk) {
+    return {
+      type: 'MALWARE',
+      category: 'SECURITY',
+      threatType: 'MALWARE',
+      title: '🛡️ *PERINGATAN KERAS DARI CYBER SECURITY: VIRUS & MALWARE (.APK)* 🛡️',
+      threatHeader: '📌 *Terdeteksi*: File Aplikasi Berbahaya (.APK Trojan Sniffer)',
+      advice: '⚠️ *PERINGATAN KERAS DARI CYBER SECURITY*:\n' +
+        'File APK asing berisiko mencuri kode OTP dan menguras saldo rekening M-Banking!\n\n' +
+        '🛑 *SANKSI PENGAMANAN SIBER*:\n' +
+        '*1 KALI LAGI* menyebarkan file APK asing, nomor Anda akan *LANGSUNG DI-KICK & DI-BLACKLIST* oleh sistem!'
+    };
+  }
+
+  // 3. Saldo Masuk Palsu / Dana Kaget Scam / Phishing
+  const isSaldoScam = /\b(dana\s*kaget|danakaget|saldo\s*gratis|klaim\s*saldo|tarik\s*tunai\s*gratis|klaim\s*hadiah|pencairan\s*dana|bagi-bagi\s*saldo|undian\s*berhadiah|giveaway\s*resmi|saldo.*masuk|cek\s*saldo|penarikan\s*dana|cairkan\s*saldo)\b/i.test(lower);
+  if (isSaldoScam) {
+    return {
+      type: 'PHISHING',
+      category: 'SECURITY',
+      threatType: 'PHISHING',
+      title: '🛡️ *PERINGATAN KERAS DARI CYBER SECURITY: PENIPUAN SALDO & PHISHING* 🛡️',
+      threatHeader: '📌 *Terdeteksi*: Modus Penipuan Saldo Masuk / Link Pencairan Palsu / Phishing',
+      advice: '⚠️ *PERINGATAN KERAS DARI CYBER SECURITY*:\n' +
+        '1. JANGAN PERNAH mengklik tautan/link yang menjanjikan saldo masuk, transfer gratis, hadiah tunai, atau undian!\n' +
+        '2. JANGAN mengisi nomor rekening, PIN, atau kode OTP di tautan tidak resmi.\n\n' +
+        '🛑 *SANKSI PENGAMANAN SIBER*:\n' +
+        'Jika nomor Anda terus menyebarkan link penipuan serupa (indikasi akun telah dibajak), nomor Anda akan *SEKETIKA DI-KICK* demi melindungi rekening anggota grup!'
+    };
+  }
+
+  // 4. Kata Kasar / Makian / Hinaan (Insult)
+  const isKasar = /\b(anjing|anying|anyink|anjir|anjrit|bangsat|bajingan|kontol|memek|pantek|pepek|itil|jembut|asu|perek|lonte|jablay|tolol|goblok|bego|idiot|bodoh|setan|iblis|sontoloyo|babi|bangke|tai|kehed|belegug)\b/i.test(lower);
+  if (isKasar) {
+    return {
+      type: 'INSULT',
+      category: 'MODERATION',
+      rule: 'INSULT',
+      title: '⚠️ *PERINGATAN TATA KRAMA & ETIKA TUTUR KATA* ⚠️',
+      threatHeader: '📌 *Terdeteksi*: Penggunaan Kata Kasar / Hinaan / Makian Tidak Pantas',
+      advice: '💡 *HIMBAUAN ETIKA*:\n' +
+        'Mohon jaga lisan dan kesopanan tutur kata saat berkomunikasi di grup. Mari saling menghargai sesama warga perantau.'
+    };
+  }
+
+  // 5. Dugem / Miras / Mabuk / Prostitusi / Maksiat
+  const isMaksiat = /\b(open\s*bo|openbo|bo\s*include|michat|vcs|dugem|mabuk\s*bareng|miras|oplosan|pesta\s*miras)\b/i.test(lower);
+  if (isMaksiat) {
+    return {
+      type: 'INAPPROPRIATE_BEHAVIOR',
+      category: 'MODERATION',
+      rule: 'INAPPROPRIATE_BEHAVIOR',
+      title: '⛔ *PERINGATAN KETERTIBAN: LARANGAN MAKSIAT & KONTEN TIDAK PANTAS* ⛔',
+      threatHeader: '📌 *Terdeteksi*: Ajakan / Konten Tidak Pantas (Dugem / Miras / Mabuk / Maksiat / Asusila)',
+      advice: '⚠️ *PERINGATAN KERAS DARI CYBER SECURITY & PENGURUS*:\n' +
+        'Grup Paguyuban Sunda Rantau Jogja (SRJ) adalah wadah silaturahmi perantau yang tertib dan bermartabat. Dilarang keras mengajak pesta malam/dugem, mabuk miras, atau konten asusila!\n\n' +
+        '🛑 *SANKSI PELANGGARAN ATURAN*:\n' +
+        '*1 KALI LAGI* melakukan tindakan yang sama, hak keanggotaan Anda akan dicabut dan Anda akan *LANGSUNG DI-KICK* dari paguyuban!'
+    };
+  }
+
+  return null;
+}
+
 async function startWhatsAppDaemon(freshPairing = false) {
   if (isInitializing) return;
   isInitializing = true;
@@ -304,8 +395,66 @@ async function startWhatsAppDaemon(freshPairing = false) {
     });
 
     sock.ev.on('group-participants.update', async (ev) => {
-      console.log(`[DAEMON-EVENT] group-participants.update: ${ev.id} (${ev.action})`);
-      await syncGroups(true);
+      try {
+        console.log(`[DAEMON-EVENT] group-participants.update: ${ev.id} (${ev.action})`);
+        await syncGroups(true);
+
+        // =========================================================================
+        // FITUR SAPAAN HALUS TI CYBER SECURITY: ANGGOTA BARU GABUNG (1 KALI PER NOMOR)
+        // =========================================================================
+        if (ev.action === 'add' && Array.isArray(ev.participants)) {
+          const groupJid = ev.id;
+          const dbCheck = readDb() || {};
+          if (!Array.isArray(dbCheck.welcomedMembers)) {
+            dbCheck.welcomedMembers = [];
+          }
+          const welcomedSet = new Set(dbCheck.welcomedMembers);
+          const myNum = sock.user?.id ? sock.user.id.split(':')[0].replace(/[^0-9]/g, '') : '';
+
+          for (const participant of ev.participants) {
+            const phoneNum = participant.replace(/[^0-9]/g, '');
+            if (!phoneNum || phoneNum === myNum) continue;
+
+            // Aturan ketat: per nomor hanya 1 kali sambutan seumur hidup
+            if (welcomedSet.has(phoneNum)) {
+              console.log(`[WELCOME-GUARD] Nomor +${phoneNum} sudah pernah disapa sebelumnya. Melewati sambutan.`);
+              continue;
+            }
+
+            // Catat ke memori dan database secara permanen
+            welcomedSet.add(phoneNum);
+            updateDb((db) => {
+              if (!Array.isArray(db.welcomedMembers)) db.welcomedMembers = [];
+              if (!db.welcomedMembers.includes(phoneNum)) {
+                db.welcomedMembers.push(phoneNum);
+              }
+            });
+
+            // Sapaan halus bernuansa paguyuban Sunda & perlindungan siber
+            const welcomeMessage = 
+              `Sampurasun Kang/Teh @${phoneNum}! 🙏\n` +
+              `Wilujeng sumping di grup resmi Paguyuban Sunda Rantau Jogja (SRJ).\n\n` +
+              `🛡️ *Sapaan Ramah ti Cyber Security SRJ*:\n` +
+              `Selamat bergabung di wadah silaturahmi perantau asal Tanah Sunda (Jawa Barat & Banten) di Daerah Istimewa Yogyakarta.\n\n` +
+              `Komunitas ini berlandaskan falsafah luhur leluhur urang Sunda:\n` +
+              `✨ *Silih Asah, Silih Asih, Silih Asuh* ✨\n` +
+              `_Nulung ka nu butuh, nalang ka nu susah._\n\n` +
+              `💡 *Himbauan Keamanan & Kenyamanan Bersama*:\n` +
+              `1. Waspadai tautan asing, modus penipuan saldo masuk/hadiah palsu, dan file mencurigakan (.apk).\n` +
+              `2. Jaga kerukunan, etika tutur kata yang santun, serta marwah paguyuban kita bersama.\n` +
+              `3. Hindari konten perjudian online (slot/judol), maksiat, atau provokasi.\n\n` +
+              `Cyber Security SRJ siap mendampingi ketenteraman grup 24 jam. Mugi-mugi betah, berkah, sareng guyub rukun di Jogja. Rahayu! 🤝`;
+
+            console.log(`[WELCOME-GUARD] Mengirim sapaan halus Cyber Security ke +${phoneNum} di grup ${groupJid}...`);
+            await sock.sendMessage(groupJid, {
+              text: welcomeMessage,
+              mentions: [participant]
+            }).catch(err => console.error('[WELCOME-GUARD] Gagal kirim sambutan:', err.message));
+          }
+        }
+      } catch (err) {
+        console.error('[DAEMON-EVENT] Error on group-participants.update:', err.message);
+      }
     });
 
     // Auto-sync otomatis setiap 30 detik agar jika bot baru dimasukkan ke grup langsung tercatat
@@ -746,6 +895,64 @@ async function startWhatsAppDaemon(freshPairing = false) {
           if (groupHistory.length > 25) groupHistory.pop();
 
           console.log(`[DAEMON-MSG] [${groupJid}] ${senderName}: ${text.slice(0, 45)}...`);
+
+          // =========================================================================
+          // JALUR KILAT (FAST-PATH INSTANT ACTION): EKSEKUSI DALAM HITUNGAN MILIDETIK (<50ms)
+          // =========================================================================
+          const fastViolation = isGroup ? inspectFastRules(text) : null;
+          if (fastViolation && isGroup) {
+            console.log(`[DAEMON-FAST-PATH] ⚡ Pelanggaran instan terdeteksi [${fastViolation.type}] dari ${senderName} di ${groupJid}! Menghapus langsung tanpa jeda...`);
+
+            // 1. LANGSUNG HAPUS PESAN DARI WHATSAPP DALAM MILIDETIK
+            await sock.sendMessage(groupJid, { delete: msg.key }).catch(e => {
+              console.error('[DAEMON-DELETE-FAST] Gagal hapus pesan:', e.message);
+              if (e.message?.includes('admin') || e.message?.includes('403') || e.message?.includes('forbidden')) {
+                console.warn('[DAEMON-ADMIN-WARN] Nomor bot (+6285780459052) belum menjadi Admin di grup ini. Harap jadikan Admin agar bot bisa menghapus pesan!');
+              }
+            });
+
+            // 2. LANGSUNG KIRIM PERINGATAN RESMI CYBER SECURITY KE GRUP
+            const senderNumber = senderJid.replace(/[^0-9]/g, '');
+            const warningText = `${fastViolation.title}\n_SRJ GUARDIAN — SISTEM KEAMANAN SIBER_\n\n` +
+              `🚨 *WASPADA*: Pesan dari @${senderNumber} telah *DIHAPUS OTOMATIS* demi keamanan grup.\n\n` +
+              `${fastViolation.threatHeader}\n\n` +
+              `${fastViolation.advice}`;
+
+            await sock.sendMessage(groupJid, {
+              text: warningText,
+              mentions: [senderJid]
+            }).catch(e => console.error('[DAEMON-WARN-FAST] Gagal kirim peringatan:', e.message));
+
+            // 3. JAPRI ADMIN RESMI
+            const currentDb = readDb();
+            const adminPhone = currentDb?.settings?.primaryAdminPhone?.replace(/[^0-9]/g, '');
+            if (adminPhone) {
+              const alertAdmin = `🛡️ *SRJ GUARDIAN — PERINGATAN KILAT SIBER*\n\n` +
+                `⚠️ Ancaman: *${fastViolation.type}* (${fastViolation.category})\n` +
+                `👥 Grup: WhatsApp Group\n` +
+                `👤 Pengirim: ${senderName} (+${senderNumber})\n` +
+                `💬 Pesan: "${text}"\n` +
+                `🎯 Tindakan: Otomatis Dihapus Instan dari Grup (<50ms)`;
+
+              sock.sendMessage(`${adminPhone}@s.whatsapp.net`, { text: alertAdmin }).catch(() => {});
+            }
+
+            // 4. DISPATCH KE PIPELINE SECARA BACKGROUND (ASYNCHRONOUS) UNTUK RECORD DATABASE & DASHBOARD
+            fetch('http://127.0.0.1:3000/api/pipeline/ingest', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                groupJid,
+                groupName: isGroup ? 'SUNDA RANTAU JOGJA' : 'Private Chat',
+                senderJid,
+                senderName,
+                messageId: msg.key.id,
+                text
+              })
+            }).catch(e => console.error('[DAEMON-FAST-LOG] Gagal background log:', e.message));
+
+            return; // Selesai seketika!
+          }
 
           try {
             const res = await fetch('http://127.0.0.1:3000/api/pipeline/ingest', {

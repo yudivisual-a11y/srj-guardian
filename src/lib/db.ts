@@ -22,6 +22,7 @@ export interface DatabaseState {
   moderationLogs: ModerationLog[];
   helpReports: HelpReport[];
   urlScans: UrlScanResult[];
+  welcomedMembers?: string[];
   settings: SystemSettings;
 }
 
@@ -54,6 +55,7 @@ const cleanInitialDatabase: DatabaseState = {
   moderationLogs: [],
   helpReports: [],
   urlScans: [],
+  welcomedMembers: [],
   settings: {
     aiSensitivity: 'balanced',
     geminiApiKey: process.env.GEMINI_API_KEY || '',

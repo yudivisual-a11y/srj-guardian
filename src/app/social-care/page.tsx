@@ -12,7 +12,8 @@ import {
   CheckCircle,
   Clock,
   UserCheck,
-  AlertCircle
+  AlertCircle,
+  Trash2
 } from 'lucide-react';
 import { HelpReport, SocialCareCategory, UrgencyLevel } from '@/types';
 
@@ -37,6 +38,35 @@ export default function SocialCarePage() {
   useEffect(() => {
     fetchReports();
   }, []);
+
+  const handleDelete = async (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (!confirm('Apakah Anda yakin ingin menghapus permohonan bantuan ini?')) return;
+    try {
+      const res = await fetch(`/api/social-care?id=${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        await fetchReports();
+        if (selectedReport?.id === id) {
+          setSelectedReport(null);
+        }
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleClearAll = async () => {
+    if (!confirm('Apakah Anda yakin ingin MENGHAPUS SEMUA riwayat social care? Data yang dihapus tidak dapat dikembalikan.')) return;
+    try {
+      const res = await fetch('/api/social-care?all=true', { method: 'DELETE' });
+      if (res.ok) {
+        await fetchReports();
+        setSelectedReport(null);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   const handleUpdateStatus = async (id: string, newStatus: HelpReport['status']) => {
     setUpdatingId(id);
@@ -101,7 +131,7 @@ export default function SocialCarePage() {
           </p>
         </div>
 
-        {/* Category Filter */}
+        {/* Category Filter & Actions */}
         <div className="flex items-center gap-2">
           <select
             value={filterCategory}
@@ -115,6 +145,16 @@ export default function SocialCarePage() {
             <option value="BANTUAN_SOSIAL">Bantuan Sosial</option>
             <option value="INFORMASI_LAIN">Informasi Lain</option>
           </select>
+
+          {reports.length > 0 && (
+            <button
+              onClick={handleClearAll}
+              className="px-3 py-1.5 rounded-xl bg-charcoal-900 hover:bg-red-950/60 text-charcoal-400 hover:text-red-300 text-xs font-semibold border border-charcoal-750 hover:border-red-800 transition flex items-center gap-1.5"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Bersihkan Semua ({reports.length})</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -197,7 +237,7 @@ export default function SocialCarePage() {
                     </span>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5">
                     <a
                       href={`https://wa.me/${cleanPhone}`}
                       target="_blank"
@@ -216,6 +256,14 @@ export default function SocialCarePage() {
                       className="px-2.5 py-1 rounded-lg bg-charcoal-800 hover:bg-charcoal-750 text-white text-[11px] font-medium border border-charcoal-700 transition"
                     >
                       Update
+                    </button>
+
+                    <button
+                      onClick={(e) => handleDelete(item.id, e)}
+                      title="Hapus Laporan Ini"
+                      className="p-1.5 rounded-lg bg-charcoal-800 hover:bg-red-950/70 text-charcoal-400 hover:text-red-300 border border-charcoal-700 hover:border-red-800/80 transition"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 </div>
@@ -273,9 +321,16 @@ export default function SocialCarePage() {
                 />
               </div>
 
-              <div className="pt-3 border-t border-charcoal-800 flex items-center justify-between gap-2 flex-wrap">
-                <span className="text-charcoal-400">Pilih Status Baru:</span>
-                <div className="flex items-center gap-2">
+              <div className="pt-3 border-t border-charcoal-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <button
+                  onClick={() => handleDelete(selectedReport.id)}
+                  className="px-3 py-1.5 rounded-lg bg-red-950/40 hover:bg-red-900/60 text-red-300 text-xs font-semibold border border-red-800 transition flex items-center justify-center gap-1.5"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Hapus Laporan Ini</span>
+                </button>
+
+                <div className="flex items-center gap-2 flex-wrap">
                   <button
                     onClick={() => handleUpdateStatus(selectedReport.id, 'CONTACTED')}
                     className="px-3 py-1.5 rounded-lg bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 text-xs font-semibold border border-blue-500/40 transition"

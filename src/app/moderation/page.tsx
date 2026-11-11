@@ -11,7 +11,8 @@ import {
   Check, 
   Info,
   Shield,
-  HelpCircle
+  HelpCircle,
+  Trash2
 } from 'lucide-react';
 import { ModerationLog, RuleViolationType } from '@/types';
 
@@ -34,6 +35,35 @@ export default function ModerationPage() {
   useEffect(() => {
     fetchLogs();
   }, []);
+
+  const handleDelete = async (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (!confirm('Apakah Anda yakin ingin menghapus data log moderasi ini?')) return;
+    try {
+      const res = await fetch(`/api/moderation?id=${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        await fetchLogs();
+        if (selectedLog?.id === id) {
+          setSelectedLog(null);
+        }
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleClearAll = async () => {
+    if (!confirm('Apakah Anda yakin ingin MENGHAPUS SEMUA riwayat log moderasi? Data tidak dapat dikembalikan.')) return;
+    try {
+      const res = await fetch('/api/moderation?all=true', { method: 'DELETE' });
+      if (res.ok) {
+        await fetchLogs();
+        setSelectedLog(null);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   const handleDecision = async (id: string, decision: ModerationLog['adminDecision']) => {
     setUpdatingId(id);
@@ -102,21 +132,33 @@ export default function ModerationPage() {
           </p>
         </div>
 
-        {/* Filter Rule */}
-        <select
-          value={filterRule}
-          onChange={(e) => setFilterRule(e.target.value)}
-          className="py-1.5 px-3 text-xs rounded-xl bg-charcoal-900 border border-charcoal-750 text-charcoal-200 focus:outline-none focus:border-srjgreen-500"
-        >
-          <option value="ALL">Semua Jenis Pelanggaran</option>
-          <option value="JUDI_ONLINE">Judi Online / Judol / Slot</option>
-          <option value="INAPPROPRIATE_BEHAVIOR">Ajakan Dugem / Mabuk / Maksiat</option>
-          <option value="FLEXING">Dugaan Flexing (Pamer Sombong)</option>
-          <option value="PROVOCATION">Provokasi & Konflik</option>
-          <option value="INSULT">Penghinaan & Kata Kasar</option>
-          <option value="BULLYING">Perundungan Anggota</option>
-          <option value="SPAM_PROMO">Spam & Promo Berlebihan</option>
-        </select>
+        {/* Filter Rule & Actions */}
+        <div className="flex items-center gap-2">
+          <select
+            value={filterRule}
+            onChange={(e) => setFilterRule(e.target.value)}
+            className="py-1.5 px-3 text-xs rounded-xl bg-charcoal-900 border border-charcoal-750 text-charcoal-200 focus:outline-none focus:border-srjgreen-500"
+          >
+            <option value="ALL">Semua Jenis Pelanggaran</option>
+            <option value="JUDI_ONLINE">Judi Online / Judol / Slot</option>
+            <option value="INAPPROPRIATE_BEHAVIOR">Ajakan Dugem / Mabuk / Maksiat</option>
+            <option value="FLEXING">Dugaan Flexing (Pamer Sombong)</option>
+            <option value="PROVOCATION">Provokasi & Konflik</option>
+            <option value="INSULT">Penghinaan & Kata Kasar</option>
+            <option value="BULLYING">Perundungan Anggota</option>
+            <option value="SPAM_PROMO">Spam & Promo Berlebihan</option>
+          </select>
+
+          {logs.length > 0 && (
+            <button
+              onClick={handleClearAll}
+              className="px-3 py-1.5 rounded-xl bg-charcoal-900 hover:bg-red-950/60 text-charcoal-400 hover:text-red-300 text-xs font-semibold border border-charcoal-750 hover:border-red-800 transition flex items-center gap-1.5"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Bersihkan Semua ({logs.length})</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Quick Admin Commands Reference Card */}
@@ -267,12 +309,21 @@ export default function ModerationPage() {
                         </span>
                       </td>
                       <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                        <button
-                          onClick={() => setSelectedLog(item)}
-                          className="px-2.5 py-1 rounded-lg bg-charcoal-800 hover:bg-charcoal-750 text-white text-[11px] font-medium border border-charcoal-700 transition"
-                        >
-                          Tinjau
-                        </button>
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={() => setSelectedLog(item)}
+                            className="px-2.5 py-1 rounded-lg bg-charcoal-800 hover:bg-charcoal-750 text-white text-[11px] font-medium border border-charcoal-700 transition"
+                          >
+                            Tinjau
+                          </button>
+                          <button
+                            onClick={(e) => handleDelete(item.id, e)}
+                            title="Hapus Log Ini"
+                            className="p-1.5 rounded-lg bg-charcoal-800 hover:bg-red-950/70 text-charcoal-400 hover:text-red-300 border border-charcoal-750 hover:border-red-800/80 transition"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -320,28 +371,38 @@ export default function ModerationPage() {
                 </p>
               </div>
 
-              <div className="pt-3 border-t border-charcoal-800 flex items-center justify-end gap-2 flex-wrap">
+              <div className="pt-3 border-t border-charcoal-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <button
-                  disabled={updatingId === selectedLog.id}
-                  onClick={() => handleDecision(selectedLog.id, 'NO_ACTION')}
-                  className="px-3 py-1.5 rounded-lg bg-charcoal-800 hover:bg-charcoal-750 text-charcoal-300 text-xs font-semibold border border-charcoal-700 transition"
+                  onClick={() => handleDelete(selectedLog.id)}
+                  className="px-3 py-1.5 rounded-lg bg-red-950/40 hover:bg-red-900/60 text-red-300 text-xs font-semibold border border-red-800 transition flex items-center justify-center gap-1.5"
                 >
-                  Abaikan (Wajar)
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Hapus Log Ini</span>
                 </button>
-                <button
-                  disabled={updatingId === selectedLog.id}
-                  onClick={() => handleDecision(selectedLog.id, 'WARNED_PRIVATELY')}
-                  className="px-3 py-1.5 rounded-lg bg-amber-600/30 hover:bg-amber-600/50 text-amber-300 text-xs font-bold border border-amber-500/40 transition"
-                >
-                  Tegur via Japri
-                </button>
-                <button
-                  disabled={updatingId === selectedLog.id}
-                  onClick={() => handleDecision(selectedLog.id, 'SANCTIONED')}
-                  className="px-3 py-1.5 rounded-lg bg-red-600/30 hover:bg-red-600/50 text-red-300 text-xs font-bold border border-red-500/40 transition"
-                >
-                  Beri Sanksi
-                </button>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    disabled={updatingId === selectedLog.id}
+                    onClick={() => handleDecision(selectedLog.id, 'NO_ACTION')}
+                    className="px-3 py-1.5 rounded-lg bg-charcoal-800 hover:bg-charcoal-750 text-charcoal-300 text-xs font-semibold border border-charcoal-700 transition"
+                  >
+                    Abaikan (Wajar)
+                  </button>
+                  <button
+                    disabled={updatingId === selectedLog.id}
+                    onClick={() => handleDecision(selectedLog.id, 'WARNED_PRIVATELY')}
+                    className="px-3 py-1.5 rounded-lg bg-amber-600/30 hover:bg-amber-600/50 text-amber-300 text-xs font-bold border border-amber-500/40 transition"
+                  >
+                    Tegur via Japri
+                  </button>
+                  <button
+                    disabled={updatingId === selectedLog.id}
+                    onClick={() => handleDecision(selectedLog.id, 'SANCTIONED')}
+                    className="px-3 py-1.5 rounded-lg bg-red-600/30 hover:bg-red-600/50 text-red-300 text-xs font-bold border border-red-500/40 transition"
+                  >
+                    Beri Sanksi
+                  </button>
+                </div>
               </div>
             </div>
           </div>

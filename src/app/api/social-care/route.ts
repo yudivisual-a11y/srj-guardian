@@ -26,3 +26,35 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
+
+export async function DELETE(req: Request) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get('id');
+    const isAll = searchParams.get('all') === 'true';
+
+    if (isAll || id === 'all') {
+      const count = db.clearHelpReports();
+      return NextResponse.json({
+        success: true,
+        message: `Seluruh (${count}) data permohonan bantuan social care berhasil dihapus.`
+      });
+    }
+
+    if (!id) {
+      return NextResponse.json({ error: 'id wajib disertakan untuk menghapus.' }, { status: 400 });
+    }
+
+    const deleted = db.deleteHelpReport(id);
+    if (!deleted) {
+      return NextResponse.json({ error: 'Data laporan bantuan tidak ditemukan.' }, { status: 404 });
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: 'Data laporan bantuan berhasil dihapus.'
+    });
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}

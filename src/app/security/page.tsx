@@ -12,7 +12,8 @@ import {
   Filter,
   Check,
   XCircle,
-  FileText
+  FileText,
+  Trash2
 } from 'lucide-react';
 import { SecurityIncident, ThreatStatus } from '@/types';
 
@@ -22,6 +23,35 @@ export default function SecurityPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIncident, setSelectedIncident] = useState<SecurityIncident | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+
+  const handleDelete = async (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (!confirm('Apakah Anda yakin ingin menghapus data laporan insiden ini?')) return;
+    try {
+      const res = await fetch(`/api/security?id=${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        await fetchIncidents();
+        if (selectedIncident?.id === id) {
+          setSelectedIncident(null);
+        }
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleClearAll = async () => {
+    if (!confirm('Apakah Anda yakin ingin MENGHAPUS SEMUA riwayat insiden keamanan siber? Data yang dihapus tidak dapat dikembalikan.')) return;
+    try {
+      const res = await fetch('/api/security?all=true', { method: 'DELETE' });
+      if (res.ok) {
+        await fetchIncidents();
+        setSelectedIncident(null);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   const fetchIncidents = async () => {
     try {
@@ -107,6 +137,16 @@ export default function SecurityPage() {
             <option value="MENCURIGAKAN">Hanya MENCURIGAKAN</option>
             <option value="AMAN">AMAN</option>
           </select>
+
+          {incidents.length > 0 && (
+            <button
+              onClick={handleClearAll}
+              className="px-3 py-1.5 rounded-xl bg-charcoal-900 hover:bg-red-950/60 text-charcoal-400 hover:text-red-300 text-xs font-semibold border border-charcoal-750 hover:border-red-800 transition flex items-center gap-1.5"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Bersihkan Semua ({incidents.length})</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -182,12 +222,21 @@ export default function SecurityPage() {
                       </span>
                     </td>
                     <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                      <button
-                        onClick={() => setSelectedIncident(item)}
-                        className="px-2.5 py-1 rounded-lg bg-charcoal-800 hover:bg-charcoal-750 text-white text-[11px] font-medium border border-charcoal-700 transition"
-                      >
-                        Detail
-                      </button>
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          onClick={() => setSelectedIncident(item)}
+                          className="px-2.5 py-1 rounded-lg bg-charcoal-800 hover:bg-charcoal-750 text-white text-[11px] font-medium border border-charcoal-700 transition"
+                        >
+                          Detail
+                        </button>
+                        <button
+                          onClick={(e) => handleDelete(item.id, e)}
+                          title="Hapus Laporan Ini"
+                          className="p-1.5 rounded-lg bg-charcoal-800 hover:bg-red-950/70 text-charcoal-400 hover:text-red-300 border border-charcoal-750 hover:border-red-800/80 transition"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -256,8 +305,15 @@ export default function SecurityPage() {
               )}
 
               {/* Status Update Actions */}
-              <div className="pt-3 border-t border-charcoal-800 flex items-center justify-between">
-                <span className="text-charcoal-400">Ubah Status Penanganan:</span>
+              <div className="pt-3 border-t border-charcoal-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <button
+                  onClick={() => handleDelete(selectedIncident.id)}
+                  className="px-3 py-1.5 rounded-lg bg-red-950/40 hover:bg-red-900/60 text-red-300 text-xs font-semibold border border-red-800 transition flex items-center justify-center gap-1.5"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Hapus Laporan Ini</span>
+                </button>
+
                 <div className="flex items-center gap-2">
                   <button
                     disabled={updatingId === selectedIncident.id}

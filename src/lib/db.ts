@@ -139,6 +139,25 @@ class DatabaseManager {
     return false;
   }
 
+  public deleteSecurityIncident(id: string): boolean {
+    this.state = this.load();
+    const initialLen = this.state.securityIncidents?.length || 0;
+    this.state.securityIncidents = (this.state.securityIncidents || []).filter(i => i.id !== id);
+    if (this.state.securityIncidents.length !== initialLen) {
+      this.save(this.state);
+      return true;
+    }
+    return false;
+  }
+
+  public clearSecurityIncidents(): number {
+    this.state = this.load();
+    const count = this.state.securityIncidents?.length || 0;
+    this.state.securityIncidents = [];
+    this.save(this.state);
+    return count;
+  }
+
   // Moderation Logs
   public getModerationLogs(): ModerationLog[] {
     this.state = this.load();
@@ -163,6 +182,25 @@ class DatabaseManager {
       return true;
     }
     return false;
+  }
+
+  public deleteModerationLog(id: string): boolean {
+    this.state = this.load();
+    const initialLen = this.state.moderationLogs?.length || 0;
+    this.state.moderationLogs = (this.state.moderationLogs || []).filter(m => m.id !== id);
+    if (this.state.moderationLogs.length !== initialLen) {
+      this.save(this.state);
+      return true;
+    }
+    return false;
+  }
+
+  public clearModerationLogs(): number {
+    this.state = this.load();
+    const count = this.state.moderationLogs?.length || 0;
+    this.state.moderationLogs = [];
+    this.save(this.state);
+    return count;
   }
 
   // Help Reports (Social Care)
@@ -190,6 +228,25 @@ class DatabaseManager {
       return true;
     }
     return false;
+  }
+
+  public deleteHelpReport(id: string): boolean {
+    this.state = this.load();
+    const initialLen = this.state.helpReports?.length || 0;
+    this.state.helpReports = (this.state.helpReports || []).filter(h => h.id !== id);
+    if (this.state.helpReports.length !== initialLen) {
+      this.save(this.state);
+      return true;
+    }
+    return false;
+  }
+
+  public clearHelpReports(): number {
+    this.state = this.load();
+    const count = this.state.helpReports?.length || 0;
+    this.state.helpReports = [];
+    this.save(this.state);
+    return count;
   }
 
   // URL Scans

@@ -163,6 +163,29 @@ function inspectFastRules(rawText) {
 }
 
 // =========================================================================
+// ANTI-SPOOFING / DETEKSI DUPLIKASI TEMPLATE CYBER SECURITY
+// Mendeteksi jika ada anggota yang meniru / menyalin template teks resmi
+// =========================================================================
+function inspectTemplateSpoofing(rawText) {
+  const text = (rawText || '').trim();
+  if (!text) return false;
+  const lower = text.toLowerCase();
+
+  const isSpoofing = 
+    /srj\s*(guardian|cyber\s*guardian)/i.test(lower) ||
+    /sistem\s*keamanan\s*siber/i.test(lower) ||
+    /peringatan\s*keras\s*dari\s*cyber\s*security/i.test(lower) ||
+    /peringatan\s*tata\s*krama\s*&\s*etika/i.test(lower) ||
+    /peringatan\s*ketertiban:\s*larangan/i.test(lower) ||
+    /sapaan\s*ramah\s*ti\s*cyber\s*security/i.test(lower) ||
+    /sanksi\s*khusus\s*judol/i.test(lower) ||
+    /sanksi\s*pengamanan\s*siber/i.test(lower) ||
+    /pemberitahuan\s*keamanan\s*siber/i.test(lower);
+
+  return Boolean(isSpoofing);
+}
+
+// =========================================================================
 // SISTEM ANTI-SLEEP / KEEPAWAKE MACOS (Apple Silicon M3 / Intel)
 // Menjaga CPU, memori, & WiFi tetap aktif meskipun layar padam/terkunci
 // =========================================================================
@@ -493,14 +516,14 @@ async function startWhatsAppDaemon(freshPairing = false) {
       }
     });
 
-    // Auto-sync otomatis setiap 30 detik agar jika bot baru dimasukkan ke grup langsung tercatat
+    // Auto-sync berkala setiap 10 menit agar tidak memicu rate-overlimit dari WhatsApp
     const periodicGroupSync = setInterval(async () => {
       try {
         if (currentSock && sock?.user?.id) {
           await syncGroups(false);
         }
       } catch (e) {}
-    }, 30000);
+    }, 10 * 60 * 1000);
 
     // =========================================================================
     // FITUR DETEKSI WAKE-FROM-SLEEP: DETEKSI KETIKA LAPTOP BANGUN DARI TIDUR
@@ -968,65 +991,42 @@ async function startWhatsAppDaemon(freshPairing = false) {
           console.log(`[DAEMON-MSG] [${groupJid}] ${senderName}: ${text.slice(0, 45)}...`);
 
           // =========================================================================
-          // FITUR DETEKSI PERKENALAN ANGGOTA BARU DI CHAT (Izin Gabung, Salam Kenal, dll.)
+          // ANTI-SPOOFING / ANTI-DUPLIKASI TEMPLATE CYBER SECURITY
+          // Menghapus pesan anggota yang meniru / menyalin template bot resmi
           // =========================================================================
-          const isIntroMessage = 
-            // 1. Izin / Ijin gabung / masuk / nimbrung / widi
-            /\b(i[zj]in\s*(gabung|masuk|lebet|nimbrung|join|ngiringan|widi|nyimak|silaturahmi)|nyuhunkeun\s*(widi|i[zj]in))\b/i.test(text) ||
-            // 2. Salam kenal / silaturahmi / panceg
-            /\b(salam\s*(kenal|silaturahm?i|panceg|dulur|wargi|kumaha|sadayana))\b/i.test(text) ||
-            // 3. Nembe / Anyar / Baru gabung
-            /\b(nembe\s*(gabung|lebet|ngiringan|aya|lebetan)|anyar\s*(gabung|lebet|ngiringan)|baru\s*(gabung|masuk|join)|warga\s*baru|anggota\s*baru|member\s*baru)\b/i.test(text) ||
-            // 4. Perkenalan / Nepangkeun / Kulonuwun
-            /\b(nepangkeun|perkenalkan\s*(nama|saya|abdi|urang)|kulonuwun|sampurasun)\b/i.test(text) ||
-            // 5. Menyebut perantau baru / orang Sunda yang baru merapat ke Jogja
-            /\b(abdi\s*perantau|urang\s*perantau|perantau\s*anyar|perantau\s*enggal|nembe\s*ka\s*jogja|nembe\s*di\s*jogja|anyar\s*di\s*jogja)\b/i.test(text) ||
-            // 6. Sapaan khas orang lembur yang baru nimbrung di grup
-            /\b(gabung\s*(kang|teh|lur|min|mang|om|a|aa|sadayana)|ngiring\s*(calik|nimbrung|ngiuhan|ngopi))\b/i.test(text);
+          if (isGroup && inspectTemplateSpoofing(text)) {
+            console.log(`[DAEMON-ANTI-SPOOF] 🚨 Duplikasi template resmi terdeteksi dari ${senderName} (${senderJid}) di ${groupJid}! Menghapus langsung...`);
 
-          if (isIntroMessage && isGroup) {
-            const dbCheck = readDb() || {};
-            if (!Array.isArray(dbCheck.welcomedMembers)) {
-              dbCheck.welcomedMembers = [];
-            }
-            const welcomedSet = new Set(dbCheck.welcomedMembers);
+            // 1. LANGSUNG HAPUS PESAN DUPLIKAT DARI GRUP
+            await sock.sendMessage(groupJid, { delete: msg.key }).catch(e => {
+              console.error('[DAEMON-ANTI-SPOOF] Gagal hapus pesan duplikat:', e.message);
+            });
 
-            // Dapatkan nomor telepon asli (jika participant berupa LID, gunakan participantAlt)
+            // 2. KASIH TAHU DENGAN BAHASA INDONESIA YANG JELAS, TEGAS & ENAK
             const actualPnJid = msg.key?.participantAlt || (msg.key?.participant && !msg.key.participant.includes('@lid') ? msg.key.participant : senderJid);
             const senderNumber = actualPnJid.replace(/[^0-9]/g, '');
-            const myNum = sock.user?.id ? sock.user.id.split(':')[0].replace(/[^0-9]/g, '') : '';
 
-            if (senderNumber && senderNumber !== myNum && !welcomedSet.has(senderNumber)) {
-              console.log(`[WELCOME-GUARD] 🤝 Deteksi chat perkenalan anggota baru (@${senderNumber}): "${text.slice(0, 35)}..."`);
-              welcomedSet.add(senderNumber);
-              updateDb((db) => {
-                if (!Array.isArray(db.welcomedMembers)) db.welcomedMembers = [];
-                if (!db.welcomedMembers.includes(senderNumber)) {
-                  db.welcomedMembers.push(senderNumber);
-                }
-              });
+            const clarificationText = 
+              `🛡️ *PEMBERITAHUAN RESMI CYBER SECURITY SRJ* 🛡️\n` +
+              `_Sistem Keamanan & Marwah Paguyuban Sunda Rantau Jogja_\n\n` +
+              `Perhatian Rekan-rekan Warga Grup,\n` +
+              `Pesan dari @${senderNumber} telah *DIHAPUS* otomatis oleh sistem.\n\n` +
+              `📌 *Alasan*: Menyalin / Menirukan Format Template Resmi Cyber Security SRJ\n\n` +
+              `⚠️ *Klarifikasi Resmi*:\n` +
+              `Pesan yang baru saja dikirim adalah *DUPLIKAT / TIRUAN*, bukan peringatan asli dari sistem pengamanan siber paguyuban.\n\n` +
+              `💡 *Ketentuan Komunikasi Grup*:\n` +
+              `1. Seluruh peringatan keamanan dan tindakan moderasi hanya diterbitkan secara otomatis oleh akun resmi Cyber Security SRJ demi ketertiban bersama.\n` +
+              `2. Anggota dimohon untuk tidak menyalin, memalsukan, atau membuat lelucon menggunakan format template keamanan resmi.\n\n` +
+              `Mari bersama-sama menjaga obrolan grup tetap tertib, nyaman, dan guyub rukun. Hatur nuhun! Rahayu! 🤝`;
 
-              const welcomeMessage = 
-                `Sampurasun Kang/Teh @${senderNumber}! 🙏\n` +
-                `Wilujeng sumping di grup resmi Paguyuban Sunda Rantau Jogja (SRJ).\n\n` +
-                `🛡️ *Sapaan Ramah ti Cyber Security SRJ*:\n` +
-                `Selamat bergabung di wadah silaturahmi perantau asal Tanah Sunda (Jawa Barat & Banten) di Daerah Istimewa Yogyakarta.\n\n` +
-                `Paguyuban ini berlandaskan falsafah luhur leluhur urang Sunda:\n` +
-                `✨ *Silih Asah, Silih Asih, Silih Asuh* ✨\n` +
-                `_Nulung ka nu butuh, nalang ka nu susah._\n\n` +
-                `Mangga Kang/Teh nepangkeun supados langkung wanoh & akrab:\n` +
-                `• *Nama*:\n` +
-                `• *Asal Lembur* (Kab/Kota di Jabar/Banten):\n` +
-                `• *Di Jogjana di mana* (Daerah/Wilayah di Jogja):\n\n` +
-                `Mugi-mugi betah, guyub rukun, berkah, sareng tiasa silih rojong di tanah perantauan. Rahayu! 🤝`;
+            const mentionsList = Array.from(new Set([senderJid, actualPnJid, msg.key?.participant, msg.key?.participantAlt].filter(Boolean)));
 
-              const mentionsList = Array.from(new Set([senderJid, actualPnJid, msg.key?.participant, msg.key?.participantAlt].filter(Boolean)));
+            await sock.sendMessage(groupJid, {
+              text: clarificationText,
+              mentions: mentionsList
+            }).catch(e => console.error('[DAEMON-ANTI-SPOOF] Gagal kirim klarifikasi:', e.message));
 
-              await sock.sendMessage(groupJid, {
-                text: welcomeMessage,
-                mentions: mentionsList
-              }, { quoted: msg }).catch(err => console.error('[WELCOME-GUARD] Gagal kirim sambutan otomatis:', err.message));
-            }
+            return; // Hentikan pemrosesan pesan duplikat
           }
 
           // =========================================================================

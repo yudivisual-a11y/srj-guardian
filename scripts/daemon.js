@@ -1339,11 +1339,19 @@ async function startWhatsAppDaemon(freshPairing = false) {
     sock.ev.on('messaging-history.set', async ({ messages }) => {
       try {
         if (messages && messages.length > 0) {
-          console.log(`[DAEMON-CATCHUP] 📥 Menerima sinkronisasi ${messages.length} pesan riwayat. Memindai pelanggaran yang masuk saat laptop offline/tidur...`);
-          for (const msg of messages) {
-            await handleOneMessage(msg, true);
+          // Hanya proses pesan 1 jam terakhir untuk menjaga kestabilan memori V8 & performa
+          const recentThreshold = Math.floor(Date.now() / 1000) - 3600;
+          const freshMessages = messages.filter(m => {
+            const ts = Number(m.messageTimestamp) || 0;
+            return ts > recentThreshold;
+          });
+          if (freshMessages.length > 0) {
+            console.log(`[DAEMON-CATCHUP] 📥 Memindai ${freshMessages.length} pesan tertinggal (dari total ${messages.length} riwayat)...`);
+            for (const msg of freshMessages) {
+              await handleOneMessage(msg, true);
+            }
+            console.log('[DAEMON-CATCHUP] ✅ Pemindaian pesan tertinggal pasca offline selesai!');
           }
-          console.log('[DAEMON-CATCHUP] ✅ Pemindaian pesan tertinggal pasca offline selesai!');
         }
       } catch (err) {
         console.error('[DAEMON-CATCHUP] Error processing history set:', err.message);

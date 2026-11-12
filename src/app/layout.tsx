@@ -22,7 +22,7 @@ export default function RootLayout({
         />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </head>
-      <body className="bg-charcoal-950 text-charcoal-100 min-h-screen selection:bg-srjgreen-500/30 selection:text-white">
+      <body className="cyber-grid-bg text-charcoal-100 min-h-screen selection:bg-srjgreen-500/30 selection:text-white relative">
         <div className="flex min-h-screen">
           <Sidebar mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} />
           

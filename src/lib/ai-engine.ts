@@ -40,11 +40,13 @@ ATURAN RESMI GRUP:
 3. Jaga sikap, persaudaraan, hindari kata kasar, penghinaan, perundungan, atau provokasi daerah/suku/ekonomi.
 4. Dilarang spam, penipuan, promo berlebihan, hoax.
 5. Saling menghargai (yang mapan jangan merendahkan yang berjuang).
-6. Dilarang mengajak dugem/clubbing liar, mabuk/miras, judi online/slot, prostitusi/open BO, atau narkoba yang merusak marwah paguyuban.
+6. Dilarang keras mengajak dugem/clubbing liar, mabuk/miras, judi online/slot, prostitusi/open BO, LC (Lady Companion / pemandu karaoke), maupun konten pornografi/asusila/foto vulgar yang merusak marwah paguyuban.
 
 MISI UTAMA ANDA:
-1. SECURITY: Deteksi penipuan (scam, APK undangan nikah palsu, phishing perbankan/DANA Kaget, malware, konten pornografi/asusila/kekerasan).
-2. MODERATION: Deteksi pelanggaran aturan grup secara adil dan objektif. Keputusan sanksi ada di tangan admin. Jangan pernah mempermalukan anggota di grup.
+1. SECURITY: Deteksi penipuan (scam, APK undangan nikah palsu, phishing perbankan/DANA Kaget, malware, konten pornografi/asusila/foto sekali lihat vulgar/kekerasan).
+   - KHUSUS FOTO / GAMBAR / VIEW ONCE: Jika media memuat ketelanjangan (nudity), pakaian transparan/sangat terbuka tak senonoh, organ intim, pose seksual vulgar, atau screenshot judi/scam, tandai sebagai "isSecurityThreat": true, "securityThreatType": "INAPPROPRIATE_MEDIA", "securityRiskLevel": "BERBAHAYA", "securityActionSuggested": "MESSAGE_DELETED".
+2. MODERATION: Deteksi pelanggaran aturan grup secara adil dan objektif.
+   - KHUSUS KONTEN ASUSILA & LC: Tulisan berbau "LC", "Lady Companion", "purel", "open BO", "pemandu lagu", "vcs", "bokep", "porno", "bugil", "pijat plus" HARUS langsung ditandai "isRuleViolation": true, "ruleViolationType": "INAPPROPRIATE_BEHAVIOR", "suggestedModerationAction": "SANCTIONED".
 3. SOCIAL CARE: Kenali anggota rantau yang sedang kesusahan atau butuh bantuan:
    - Sedang mencari pekerjaan / info loker di Jogja.
    - Sedang sakit sendirian di kosan tanpa keluarga.
@@ -113,52 +115,61 @@ export async function analyzeContentWithGemini(
         });
       }
 
-      // Use standard Gemini 2.5 Flash / 1.5 Flash endpoint
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          signal: AbortSignal.timeout(2000),
-          body: JSON.stringify({
-            contents: [{ parts }],
-            generationConfig: {
-              responseMimeType: 'application/json',
-              temperature: 0.1
+      // Model candidates with fallback
+      const candidateModels = ['gemini-flash-latest', 'gemini-3.8-flash', 'gemini-3.5-flash', 'gemini-2.5-flash'];
+      let candidateText = '';
+
+      for (const model of candidateModels) {
+        try {
+          const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              signal: AbortSignal.timeout(3500),
+              body: JSON.stringify({
+                contents: [{ parts }],
+                generationConfig: {
+                  responseMimeType: 'application/json',
+                  temperature: 0.1
+                }
+              })
             }
-          })
+          );
+
+          if (response.ok) {
+            const data = await response.json();
+            candidateText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+            if (candidateText) break;
+          }
+        } catch (e) {
+          // Continue to next candidate
         }
-      );
+      }
 
-      if (response.ok) {
-        const data = await response.json();
-        const candidateText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (candidateText) {
-          const parsed = JSON.parse(candidateText);
-          return {
-            isSecurityThreat: Boolean(parsed.isSecurityThreat),
-            securityThreatType: parsed.securityThreatType || undefined,
-            securityRiskLevel: parsed.securityRiskLevel || undefined,
-            securityAnalysis: parsed.securityAnalysis || '',
-            securityActionSuggested: parsed.securityActionSuggested || 'NONE',
+      if (candidateText) {
+        const parsed = JSON.parse(candidateText);
+        return {
+          isSecurityThreat: Boolean(parsed.isSecurityThreat),
+          securityThreatType: parsed.securityThreatType || undefined,
+          securityRiskLevel: parsed.securityRiskLevel || undefined,
+          securityAnalysis: parsed.securityAnalysis || '',
+          securityActionSuggested: parsed.securityActionSuggested || 'NONE',
 
-            isRuleViolation: Boolean(parsed.isRuleViolation),
-            ruleViolationType: parsed.ruleViolationType || undefined,
-            moderationConfidence: parsed.moderationConfidence || 0,
-            moderationAnalysis: parsed.moderationAnalysis || '',
-            suggestedModerationAction: parsed.suggestedModerationAction || 'NO_ACTION',
+          isRuleViolation: Boolean(parsed.isRuleViolation),
+          ruleViolationType: parsed.ruleViolationType || undefined,
+          moderationConfidence: parsed.moderationConfidence || 0,
+          moderationAnalysis: parsed.moderationAnalysis || '',
+          suggestedModerationAction: parsed.suggestedModerationAction || 'NO_ACTION',
 
-            isSocialCareNeeded: Boolean(parsed.isSocialCareNeeded),
-            socialCareCategory: parsed.socialCareCategory || undefined,
-            socialCareUrgency: parsed.socialCareUrgency || undefined,
-            socialCareSummary: parsed.socialCareSummary || '',
-            socialCareExcerpt: parsed.socialCareExcerpt || '',
+          isSocialCareNeeded: Boolean(parsed.isSocialCareNeeded),
+          socialCareCategory: parsed.socialCareCategory || undefined,
+          socialCareUrgency: parsed.socialCareUrgency || undefined,
+          socialCareSummary: parsed.socialCareSummary || '',
+          socialCareExcerpt: parsed.socialCareExcerpt || '',
 
-            rawExplanation: parsed.rawExplanation || 'Analisis AI Gemini berhasil diproses.'
-          };
-        }
-      } else {
-        console.warn('[AI] Gemini API error response:', response.status, await response.text());
+          rawExplanation: parsed.rawExplanation || 'Analisis AI Gemini berhasil diproses.'
+        };
       }
     } catch (err) {
       console.error('[AI] Gemini API exception:', err);
@@ -268,19 +279,29 @@ function runHeuristicIntelligence(text: string, hasMedia?: string): AIAnalysisRe
     };
   }
 
-  // 4. Inappropriate Behavior (Dugem, Clubbing, Miras, Mabuk, Prostitusi, Narkoba, Vulgar/Asusila)
-  const isInappropriateBehavior = /\b(dugem|clubbing|diskotik|mabok|mabuk|miras|ciu|arak|oplosan|amer|soju|whiskey|vodka|tuak|mendem|ngablu|vcs|lendir|sabu|ganja|inex|ekstasi|sinte|trihex|tramadol|alprazolam|ngewe|ngentot|sange|bokep|porno|colmek|coli|lonte|perek|pelacur|seks|mesum)\b|ajak dugem|ajak party|party liar|minum miras|nyekek botol|open bo|\b(ewe|entot)\b/i.test(lower);
+  // 4. Inappropriate Behavior (LC / Lady Companion, Prostitusi, Open BO, Pornografi, Asusila, Dugem, Miras, Narkoba)
+  const isPornOrLc = /\b(lc|lady\s*companion|purel|pemandu\s*lagu|pemandu\s*karaoke|open\s*bo|openbo|bo\s*include|ava\s*bo|bokingan|bispak|bispun|michat|vcs|colmek|coli|bokep|porno|bugil|telanjang|pap\s*tt|pap\s*bugil|sange|ngentot|ngewe|lendir|lonte|perek|pelacur|pijat\s*plus|spa\s*plus|massage\s*plus|therapis\s*plus)\b/i.test(lower);
+  const isInappropriateBehavior = isPornOrLc || /\b(dugem|clubbing|diskotik|mabok|mabuk|miras|ciu|arak|oplosan|amer|soju|whiskey|vodka|tuak|mendem|ngablu|sabu|ganja|inex|ekstasi|sinte|trihex|tramadol|alprazolam|seks|mesum)\b|ajak dugem|ajak party|party liar|minum miras|nyekek botol|open bo|\b(ewe|entot)\b/i.test(lower);
 
   if (isInappropriateBehavior) {
     return {
-      isSecurityThreat: false,
+      isSecurityThreat: isPornOrLc,
+      securityThreatType: isPornOrLc ? 'INAPPROPRIATE_MEDIA' : undefined,
+      securityRiskLevel: isPornOrLc ? 'BERBAHAYA' : undefined,
+      securityAnalysis: isPornOrLc 
+        ? 'Terdeteksi konten vulgar, pornografi, ajakan LC (Lady Companion), atau prostitusi/open BO yang dilarang keras.' 
+        : undefined,
+      securityActionSuggested: isPornOrLc ? 'MESSAGE_DELETED' : undefined,
+
       isRuleViolation: true,
       ruleViolationType: 'INAPPROPRIATE_BEHAVIOR',
-      moderationConfidence: 0.95,
-      moderationAnalysis: 'Pesan memuat ajakan atau penyebutan hal tidak pantas (dugem/clubbing, pesta miras/mabuk, konten asusila/vulgar, atau obat terlarang) yang merusak marwah paguyuban Sunda Rantau Jogja.',
-      suggestedModerationAction: 'WARNED_PRIVATELY',
+      moderationConfidence: 0.98,
+      moderationAnalysis: isPornOrLc
+        ? 'Pesan memuat penyebutan LC (Lady Companion), ajakan asusila/open BO, atau konten vulgar/pornografi yang melanggar norma dan marwah paguyuban SRJ.'
+        : 'Pesan memuat ajakan atau penyebutan hal tidak pantas (dugem/clubbing, pesta miras/mabuk, atau obat terlarang) yang merusak marwah paguyuban Sunda Rantau Jogja.',
+      suggestedModerationAction: 'SANCTIONED',
       isSocialCareNeeded: false,
-      rawExplanation: 'Pesan tergolong perilaku tidak pantas (INAPPROPRIATE_BEHAVIOR). Berikan peringatan langsung di grup.'
+      rawExplanation: 'Pesan tergolong konten asusila/perilaku tidak pantas (INAPPROPRIATE_BEHAVIOR). Wajib dihapus otomatis dan berikan peringatan sanksi di grup.'
     };
   }
 

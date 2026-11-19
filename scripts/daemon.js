@@ -16,6 +16,18 @@ const fs = require('fs');
 const path = require('path');
 const QRCode = require('qrcode');
 
+// =========================================================================
+// TAMENG ERROR GLOBAL: MENCEGAH BOT CRASH KARENA NETWORK / DNS ERROR
+// Menjamin bot tetap berjalan meskipun koneksi WiFi terputus/offline
+// =========================================================================
+process.on('uncaughtException', (err) => {
+  console.error('[DAEMON-UNCAUGHT] Terjadi kesalahan tak terduga (bot tetap berjalan):', err.message);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[DAEMON-UNHANDLED] Penolakan promise tak tertangani (bot tetap berjalan):', reason?.message || reason);
+});
+
 const DATA_DIR = path.join(__dirname, '..', '.data');
 const DB_PATH = path.join(DATA_DIR, 'srj_guardian_db.json');
 const AUTH_FOLDER = path.join(DATA_DIR, 'baileys_auth_info');
@@ -150,17 +162,34 @@ function inspectFastRules(rawText) {
     };
   }
 
-  // 5. Dugem / Miras / Mabuk / Prostitusi / Maksiat
-  const isMaksiat = /\b(open\s*bo|openbo|bo\s*include|michat|vcs|dugem|mabuk\s*bareng|miras|oplosan|pesta\s*miras)\b/i.test(lower);
+  // 5. Konten Vulgar / Pornografi / Asusila / LC (Lady Companion) / Open BO / Prostitusi
+  const isPornOrLc = /\b(lc|lady\s*companion|purel|pemandu\s*lagu|pemandu\s*karaoke|open\s*bo|openbo|bo\s*include|ava\s*bo|bokingan|bispak|bispun|michat|vcs|colmek|coli|bokep|porno|bugil|telanjang|pap\s*tt|pap\s*bugil|sange|ngentot|ngewe|lendir|lonte|perek|pelacur|pijat\s*plus|spa\s*plus|massage\s*plus|therapis\s*plus)\b/i.test(lower);
+  if (isPornOrLc) {
+    return {
+      type: 'INAPPROPRIATE_BEHAVIOR',
+      category: 'MODERATION',
+      rule: 'INAPPROPRIATE_BEHAVIOR',
+      title: '⛔ *PERINGATAN KERAS CYBER SECURITY: LARANGAN KONTEN VULGAR / PORNO / LC / ASUSILA* ⛔',
+      threatHeader: '📌 *Terdeteksi*: Konten Vulgar / Pornografi / Ajakan Asusila / LC / Prostitusi',
+      advice: '⚠️ *PERINGATAN KERAS DARI CYBER SECURITY & PENGURUS*:\n' +
+        'Grup Paguyuban Sunda Rantau Jogja (SRJ) adalah wadah silaturahmi perantau yang terhormat, sopan, dan bermartabat.\n' +
+        'Dilarang keras menyebarkan tulisan berbau pornografi, ajakan LC/karaoke malam, open BO, maupun konten asusila lainnya!\n\n' +
+        '🛑 *SANKSI TEGAS*:\n' +
+        '*1 KALI LAGI* terdeteksi membagikan konten asusila, nomor Anda akan *LANGSUNG DI-KICK DARI GRUP*!'
+    };
+  }
+
+  // 6. Dugem / Miras / Mabuk / Narkoba / Maksiat Lainnya
+  const isMaksiat = /\b(dugem|mabuk\s*bareng|miras|oplosan|pesta\s*miras|ciu|arak|tuak|mendem|ngablu|sabu|ganja|inex|ekstasi|sinte|tramadol)\b/i.test(lower);
   if (isMaksiat) {
     return {
       type: 'INAPPROPRIATE_BEHAVIOR',
       category: 'MODERATION',
       rule: 'INAPPROPRIATE_BEHAVIOR',
       title: '⛔ *PERINGATAN KETERTIBAN: LARANGAN MAKSIAT & KONTEN TIDAK PANTAS* ⛔',
-      threatHeader: '📌 *Terdeteksi*: Ajakan / Konten Tidak Pantas (Dugem / Miras / Mabuk / Maksiat / Asusila)',
+      threatHeader: '📌 *Terdeteksi*: Ajakan / Konten Tidak Pantas (Dugem / Miras / Mabuk / Narkoba)',
       advice: '⚠️ *PERINGATAN KERAS DARI CYBER SECURITY & PENGURUS*:\n' +
-        'Grup Paguyuban Sunda Rantau Jogja (SRJ) adalah wadah silaturahmi perantau yang tertib dan bermartabat. Dilarang keras mengajak pesta malam/dugem, mabuk miras, atau konten asusila!\n\n' +
+        'Grup Paguyuban Sunda Rantau Jogja (SRJ) adalah wadah silaturahmi perantau yang tertib dan bermartabat. Dilarang keras mengajak pesta malam/dugem atau mabuk miras!\n\n' +
         '🛑 *SANKSI PELANGGARAN ATURAN*:\n' +
         '*1 KALI LAGI* melakukan tindakan yang sama, hak keanggotaan Anda akan dicabut dan Anda akan *LANGSUNG DI-KICK* dari paguyuban!'
     };
@@ -231,7 +260,14 @@ async function startWhatsAppDaemon(freshPairing = false) {
   console.log('====================================================');
 
   try {
-    const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } = await import('@whiskeysockets/baileys');
+    const { 
+      default: makeWASocket, 
+      useMultiFileAuthState, 
+      DisconnectReason, 
+      Browsers,
+      downloadMediaMessage,
+      normalizeMessageContent
+    } = await import('@whiskeysockets/baileys');
 
     if (freshPairing && fs.existsSync(AUTH_FOLDER)) {
       console.log('[DAEMON] Membersihkan sesi lama untuk memulai pairing baru...');
@@ -634,17 +670,61 @@ async function startWhatsAppDaemon(freshPairing = false) {
       const senderJid = msg.key.participant || msg.key.remoteJid;
       const senderName = msg.pushName || 'Warga Rantau';
 
+      // =========================================================================
+      // EKSTRAKSI PESAN & UNPACK FOTO SEKALI LIHAT (VIEW ONCE)
+      // =========================================================================
+      const rawContent = msg.message;
+      const viewOnceMsg = rawContent?.viewOnceMessage?.message || 
+                           rawContent?.viewOnceMessageV2?.message || 
+                           rawContent?.viewOnceMessageV2Extension?.message ||
+                           rawContent?.ephemeralMessage?.message?.viewOnceMessage?.message ||
+                           rawContent?.ephemeralMessage?.message?.viewOnceMessageV2?.message;
+
+      const innerMsg = viewOnceMsg || rawContent;
+      const isViewOnce = Boolean(viewOnceMsg);
+      const imageMsg = innerMsg?.imageMessage;
+      const videoMsg = innerMsg?.videoMessage;
+
       const text = 
-        msg.message.conversation || 
-        msg.message.extendedTextMessage?.text || 
-        msg.message.imageMessage?.caption || 
-        msg.message.videoMessage?.caption || 
+        innerMsg?.conversation || 
+        innerMsg?.extendedTextMessage?.text || 
+        imageMsg?.caption || 
+        videoMsg?.caption || 
         '';
 
-      if (!text.trim()) return;
+      // Jika tidak ada teks DAN bukan berkas gambar/video, lewati
+      if (!text.trim() && !imageMsg && !videoMsg) return;
+
+      // Download buffer media jika pesan berupa gambar / video / view once
+      let mediaBase64 = null;
+      let mediaMimeType = null;
+      if (imageMsg || videoMsg) {
+        try {
+          mediaMimeType = imageMsg?.mimetype || videoMsg?.mimetype || (imageMsg ? 'image/jpeg' : 'video/mp4');
+          if (isViewOnce) {
+            console.log(`[VIEW-ONCE-GUARD] 👁️ Foto sekali lihat (View Once) terdeteksi dari ${senderName} (${senderJid}) di ${groupJid}! Membuka & mendekripsi media...`);
+          }
+          const buffer = await downloadMediaMessage(
+            msg,
+            'buffer',
+            {},
+            { reuploadRequest: sock.updateMediaMessage }
+          );
+          if (buffer && buffer.length > 0) {
+            if (isViewOnce) {
+              console.log(`[VIEW-ONCE-GUARD] 🔓 Berhasil membuka & mendekripsi foto sekali lihat (${Math.round(buffer.length / 1024)} KB)`);
+            }
+            if (buffer.length < 5 * 1024 * 1024) {
+              mediaBase64 = buffer.toString('base64');
+            }
+          }
+        } catch (mediaErr) {
+          console.error('[MEDIA-INSPECT] Gagal mengunduh media:', mediaErr.message);
+        }
+      }
 
       if (isBacklog) {
-        console.log(`[DAEMON-CATCHUP] 🔍 Memindai pesan tertinggal (${groupJid}) dari ${senderName}: "${text.slice(0, 35)}..."`);
+        console.log(`[DAEMON-CATCHUP] 🔍 Memindai pesan tertinggal (${groupJid}) dari ${senderName}: "${(text || (isViewOnce ? '[VIEW ONCE]' : '[MEDIA]')).slice(0, 35)}..."`);
       }
 
       // =========================================================================
@@ -1097,7 +1177,9 @@ async function startWhatsAppDaemon(freshPairing = false) {
                 senderJid,
                 senderName,
                 messageId: msg.key.id,
-                text
+                text: text || (isViewOnce ? '[FOTO SEKALI LIHAT / VIEW ONCE]' : (mediaBase64 ? '[MEDIA GAMBAR/VIDEO]' : '')),
+                mediaBase64,
+                mediaMimeType
               })
             }).catch(e => console.error('[DAEMON-FAST-LOG] Gagal background log:', e.message));
 
@@ -1114,7 +1196,9 @@ async function startWhatsAppDaemon(freshPairing = false) {
                 senderJid,
                 senderName,
                 messageId: msg.key.id,
-                text
+                text: text || (isViewOnce ? '[FOTO SEKALI LIHAT / VIEW ONCE]' : (mediaBase64 ? '[MEDIA GAMBAR/VIDEO]' : '')),
+                mediaBase64,
+                mediaMimeType
               })
             });
 
@@ -1137,7 +1221,7 @@ async function startWhatsAppDaemon(freshPairing = false) {
               if (isGroup) {
                 const senderNumber = senderJid.replace(/[^0-9]/g, '');
 
-                // A. Peringatan Ancaman Keamanan Siber (Phishing / Modus Saldo Masuk / Scam / Judol Link / APK Sniffing)
+                // A. Peringatan Ancaman Keamanan Siber (Phishing / Modus Saldo Masuk / Scam / Judol Link / APK Sniffing / Foto Sekali Lihat Vulgar)
                 if (result.securityIncident) {
                   const threat = result.securityIncident.threatType;
                   const rawLower = (text || '').toLowerCase();
@@ -1148,7 +1232,16 @@ async function startWhatsAppDaemon(freshPairing = false) {
                   let threatHeader = '';
                   let advice = '';
 
-                  if (isJudolLink) {
+                  if (threat === 'INAPPROPRIATE_MEDIA' || /vulgar|porno|asusila|bugil|sensual|view once|foto sekali lihat/i.test(result.securityIncident.aiAnalysis || '')) {
+                    secTitle = '⛔ *PERINGATAN KERAS CYBER SECURITY: FOTO / KONTEN VULGAR & ASUSILA* ⛔';
+                    threatHeader = isViewOnce
+                      ? '📌 *Terdeteksi*: Foto Sekali Lihat (View Once) Vulgar / Pornografi / Asusila'
+                      : '📌 *Terdeteksi*: Foto / Media Vulgar / Pornografi / Konten Tidak Senonoh';
+                    advice = '⚠️ *PERINGATAN KERAS DARI CYBER SECURITY*:\n' +
+                      'Dilarang keras membagikan foto sekali lihat maupun media bernuansa pornografi/asusila di grup paguyuban SRJ!\n\n' +
+                      '🛑 *SANKSI PENGAMANAN SIBER*:\n' +
+                      '*1 KALI LAGI* terdeteksi membagikan konten asusila, nomor Anda akan *LANGSUNG DI-KICK & DI-BLACKLIST*!';
+                  } else if (isJudolLink) {
                     secTitle = '🎰 *PERINGATAN KERAS DARI CYBER SECURITY: LINK JUDI ONLINE (JUDOL)* 🎰';
                     threatHeader = '📌 *Terdeteksi*: Tautan / Situs Perjudian Online (Slot Gacor / Togel / Taruhan)';
                     advice = '⚠️ *PERINGATAN KERAS DARI CYBER SECURITY*:\n' +
@@ -1360,9 +1453,31 @@ async function startWhatsAppDaemon(freshPairing = false) {
 
   } catch (fatalErr) {
     isInitializing = false;
+    currentSock = null;
     console.error('[DAEMON] Fatal worker error:', fatalErr.message);
+    console.log('[DAEMON] Menjadwalkan percobaan koneksi ulang dalam 5 detik...');
+    setTimeout(() => startWhatsAppDaemon(false), 5000);
   }
 }
+
+// =========================================================================
+// PENGAWAS JARINGAN AKTIF (NETWORK WATCHDOG 24/7)
+// Mendeteksi ketika koneksi internet aktif kembali setelah sempat offline/putus,
+// dan seketika menyambungkan kembali bot WhatsApp secara otomatis!
+// =========================================================================
+setInterval(async () => {
+  try {
+    const isSocketAlive = currentSock?.ws && currentSock.ws.readyState === 1;
+    if (!isSocketAlive && !isInitializing) {
+      require('dns').lookup('web.whatsapp.com', (err) => {
+        if (!err && !isInitializing && (!currentSock || currentSock.ws?.readyState !== 1)) {
+          console.log('[NETWORK-WATCHDOG] 🌐 Jaringan internet aktif! Menyambungkan kembali bot WhatsApp...');
+          startWhatsAppDaemon(false);
+        }
+      });
+    }
+  } catch (e) {}
+}, 5000);
 
 // IPC Command Poller (Checks .data/wa_command.json every 250ms)
 setInterval(async () => {

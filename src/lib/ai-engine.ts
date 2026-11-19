@@ -38,6 +38,7 @@ ATURAN RESMI GRUP:
    PENTING: Jangan menganggap orang yang sekadar bersyukur atas kelulusan, mendapat rezeki, atau membagikan kebahagiaan wajar sebagai flexing. Periksa intonasi dan konteks.
 2. Utamakan silaturahmi dan saling membantu.
 3. Jaga sikap, persaudaraan, hindari kata kasar, penghinaan, perundungan, atau provokasi daerah/suku/ekonomi.
+   PENTING TENTANG BAHASA SLANG: Kata seru santai pergaulan seperti "anjir", "anjiir", "njir", "anjrit" adalah ekspresi keheranan/keakraban wajar dan JANGAN PERNAH diperingatkan atau dihapus! Namun makian hewan dan ujaran kotor asli seperti "anjing", "babi", "bagong", "monyet", "kunyuk", "bangsat", "bajingan", "kontol", "memek", "pantek" HARUS ditindak tegas.
 4. Dilarang spam, penipuan, promo berlebihan, hoax.
 5. Saling menghargai (yang mapan jangan merendahkan yang berjuang).
 6. Dilarang keras mengajak dugem/clubbing liar, mabuk/miras, judi online/slot, prostitusi/open BO, LC (Lady Companion / pemandu karaoke), maupun konten pornografi/asusila/foto vulgar yang merusak marwah paguyuban.
@@ -308,9 +309,10 @@ function runHeuristicIntelligence(text: string, hasMedia?: string): AIAnalysisRe
   // 5. Moderation (Flexing, Insult, Provocation, Swear words, Classist harassment)
   const isFlexing = /jajan.*juta|kalian yang umr|mobil baru.*kalian miskin|gaji puluhan juta.*santai|pamer.*duit|sombong|paling kaya|paling sukses|pamer kekayaan/i.test(lower);
   
-  // Kata kasar, makian, hinaan status sosial/ekonomi, perundungan (Indonesia & Sunda)
-  // Menggunakan word-boundary \b agar tidak salah tangkap kata seperti 'masuk' (asu) atau 'pantai' (tai)
-  const isInsultOrProvocation = /\b(anjir|anjirr|njir|njirr|anying|anjing|ajg|asw|asu|bangsat|bajingan|babi|babik|tolol|goblok|bego|bodo|bodoh|belegug|kehed|modar|sialan|kampret|brengsek|idiot|kontol|kntl|memek|mmk|pepek|itil|jembut|peler|pantek|puki|pukimak|tai|tay|jancuk|jancok|dancok|setan|kere)\b|dasar.*miskin|kaum miskin|orang miskin|merendahkan|ngajak ribut|saling menyindir|adu domba|provokasi/i.test(lower);
+  // Kata kasar, makian hewan, ujaran kotor, perundungan (Indonesia & Sunda)
+  // CATATAN: 'anjir', 'anjiir', 'njir', 'anjrit' adalah kata seru slang santai dan TIDAK DIPERINGATKAN.
+  // Makian hewan asli & kata kotor: anjing, babi, bagong, monyet, kunyuk, asu, bangsat, bajingan, kontol, memek, pantek, dll.
+  const isInsultOrProvocation = /\b(anying|anjing|ajg|asw|asu|bangsat|bajingan|babi|babik|bagong|monyet|kunyuk|tolol|goblok|bego|bodo|bodoh|belegug|kehed|modar|sialan|kampret|brengsek|idiot|kontol|kntl|memek|mmk|pepek|itil|jembut|peler|pantek|puki|pukimak|tai|tay|jancuk|jancok|dancok|setan|kere)\b|dasar.*miskin|kaum miskin|orang miskin|merendahkan|ngajak ribut|saling menyindir|adu domba|provokasi/i.test(lower);
 
   if (isFlexing || isInsultOrProvocation) {
     const violation: RuleViolationType = isFlexing ? 'FLEXING' : 'INSULT';

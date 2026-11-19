@@ -148,8 +148,10 @@ function inspectFastRules(rawText) {
     };
   }
 
-  // 4. Kata Kasar / Makian / Hinaan (Insult)
-  const isKasar = /\b(anjing|anying|anyink|anjir|anjrit|bangsat|bajingan|kontol|memek|pantek|pepek|itil|jembut|asu|perek|lonte|jablay|tolol|goblok|bego|idiot|bodoh|setan|iblis|sontoloyo|babi|bangke|tai|kehed|belegug)\b/i.test(lower);
+  // 4. Kata Kasar / Makian Hewan / Ujaran Kotor (Insult)
+  // CATATAN: 'anjir', 'anjiir', 'njir', 'anjrit' adalah kata seru slang santai dan TIDAK DIPERINGATKAN.
+  // Makian hewan asli & ujaran kotor: anjing, babi, bagong, monyet, kunyuk, asu, bangsat, bajingan, kontol, memek, pantek, dll.
+  const isKasar = /\b(anjing|anying|anyink|ajg|babi|babik|bagong|monyet|kunyuk|bangsat|bajingan|kontol|kntl|memek|mmk|pantek|pepek|itil|jembut|peler|puki|pukimak|asu|perek|lonte|jablay|tolol|goblok|bego|idiot|bodoh|setan|iblis|sontoloyo|bangke|tai|kehed|belegug|modar|jancuk|jancok|dancok)\b/i.test(lower);
   if (isKasar) {
     return {
       type: 'INSULT',

@@ -78,10 +78,72 @@ function writeWaState(stateUpdate) {
   }
 }
 
+function readWaState() {
+  try {
+    if (fs.existsSync(STATE_FILE)) {
+      return JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'));
+    }
+  } catch (e) {}
+  return null;
+}
+
 let currentSock = null;
-let isInitializing = false;
+let connectionState = 'DISCONNECTED'; // 'DISCONNECTED' | 'CONNECTING' | 'CONNECTED'
+let reconnectTimer = null;
 let currentPairingCode = null;
 let triggerSyncGroups = null;
+
+// =========================================================================
+// PENGECEKAN JARINGAN & REKONEKSI TUNGGAL (ZERO-RACE CONNECTION MANAGER)
+// Menjamin hanya ADA 1 socket yang aktif, mencegah Error 440 (connectionReplaced),
+// dan otomatis menyambung saat internet kembali setelah berjam-jam offline.
+// =========================================================================
+function checkInternetConnection() {
+  return new Promise((resolve) => {
+    require('dns').lookup('web.whatsapp.com', (err) => {
+      if (!err) return resolve(true);
+      require('dns').lookup('google.com', (err2) => {
+        resolve(!err2);
+      });
+    });
+  });
+}
+
+function scheduleReconnect(delayMs = 3000, reason = '') {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+
+  console.log(`[DAEMON-RECONNECT] ⏳ Menjadwalkan koneksi ulang dalam ${Math.round(delayMs / 1000)} detik (Alasan: ${reason})...`);
+
+  reconnectTimer = setTimeout(async () => {
+    reconnectTimer = null;
+
+    const isOnline = await checkInternetConnection();
+    if (!isOnline) {
+      console.log('[DAEMON-NET] 📡 Jaringan internet sedang offline/terputus. Menunggu jaringan pulih...');
+      return scheduleReconnect(5000, 'menunggu jaringan internet pulih');
+    }
+
+    console.log('[DAEMON-NET] 🌐 Jaringan internet aktif! Memulai koneksi bot WhatsApp...');
+    startWhatsAppDaemon(false);
+  }, delayMs);
+}
+
+function getOfflineThresholdSec() {
+  const state = readWaState();
+  const nowSec = Math.floor(Date.now() / 1000);
+  if (state?.lastOnlineTimestamp) {
+    // Mulai scan dari 2 menit sebelum bot offline (untuk margin of safety)
+    const lastOnlineSec = Math.floor(state.lastOnlineTimestamp / 1000) - 120;
+    // Maksimal 48 jam ke belakang (WhatsApp admin deletion window)
+    const maxCatchupSec = nowSec - (48 * 3600);
+    return Math.max(lastOnlineSec, maxCatchupSec);
+  }
+  // Default jika belum ada timestamp: 24 jam terakhir
+  return nowSec - (24 * 3600);
+}
 
 // =========================================================================
 // JALUR KILAT (FAST-PATH RULES): DETEKSI INSTAN TANPA JEDA (<50ms)
@@ -251,8 +313,26 @@ if (process.platform === 'darwin' && !caffeinateProc) {
 }
 
 async function startWhatsAppDaemon(freshPairing = false) {
-  if (isInitializing) return;
-  isInitializing = true;
+  if (connectionState === 'CONNECTING') {
+    console.log('[DAEMON] Socket sedang dalam proses inisialisasi / handshake. Menunggu...');
+    return;
+  }
+
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+
+  // Jika socket sebelumnya masih ada, bersihkan total
+  if (currentSock) {
+    try {
+      currentSock.ev?.removeAllListeners();
+      currentSock.ws?.close();
+    } catch (e) {}
+    currentSock = null;
+  }
+
+  connectionState = 'CONNECTING';
 
   console.log('====================================================');
   console.log('  SRJ GUARDIAN — AI WHATSAPP SECURITY & MODERATOR   ');
@@ -289,18 +369,18 @@ async function startWhatsAppDaemon(freshPairing = false) {
       syncFullHistory: false,
       connectTimeoutMs: 60000,
       defaultQueryTimeoutMs: 60000,
-      keepAliveIntervalMs: 15000
+      keepAliveIntervalMs: 30000
     });
 
     currentSock = sock;
-    isInitializing = false;
 
     // Active Network Keepalive Heartbeat: Jaga WiFi Mac & Socket tetap bangun 24 jam nonstop
     const networkKeepaliveInterval = setInterval(() => {
       try {
-        require('dns').lookup('web.whatsapp.com', () => {});
-        if (sock?.ws && sock.ws.readyState === 1) {
+        const isAlive = (sock?.ws?.isOpen || sock?.ws?.socket?.readyState === 1);
+        if (isAlive) {
           sock.ws.ping();
+          writeWaState({ lastOnlineTimestamp: Date.now() });
         }
       } catch (e) {}
     }, 15000);
@@ -425,6 +505,7 @@ async function startWhatsAppDaemon(freshPairing = false) {
       }
 
       if (connection === 'close') {
+        connectionState = 'DISCONNECTED';
         clearInterval(networkKeepaliveInterval);
         const statusCode = lastDisconnect?.error?.output?.statusCode;
         const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
@@ -435,11 +516,27 @@ async function startWhatsAppDaemon(freshPairing = false) {
         }
 
         if (shouldReconnect) {
-          writeWaState({ status: 'PAIRING' });
-          isInitializing = false;
-          try { if (currentSock) currentSock.end(new Error('Connection closed, reconnecting')); } catch (e) {}
-          currentSock = null;
-          setTimeout(() => startWhatsAppDaemon(false), 2000);
+          writeWaState({
+            status: 'CONNECTING',
+            lastDisconnectReason: String(statusCode || 'closed')
+          });
+
+          // Bersihkan listener dan socket yang terputus
+          try {
+            sock.ev?.removeAllListeners();
+            sock.ws?.close();
+          } catch (e) {}
+          if (currentSock === sock) currentSock = null;
+
+          if (statusCode === 440) {
+            scheduleReconnect(8000, 'Koneksi digantikan (Error 440)');
+          } else if (statusCode === 515) {
+            scheduleReconnect(2000, 'Restart diperlukan (515)');
+          } else if (statusCode === 428) {
+            scheduleReconnect(4000, 'Precondition required (428)');
+          } else {
+            scheduleReconnect(3000, `Koneksi terputus (${statusCode || 'network drop'})`);
+          }
         } else {
           // Logged out
           console.log('[DAEMON] Sesi WhatsApp telah logout.');
@@ -460,6 +557,7 @@ async function startWhatsAppDaemon(freshPairing = false) {
           });
         }
       } else if (connection === 'open') {
+        connectionState = 'CONNECTED';
         const botJid = sock.user?.id || '';
         const phone = '+' + botJid.split(':')[0].replace(/[^0-9]/g, '');
         console.log(`[DAEMON] SUKSES! Bot WhatsApp terhubung dengan nomor: ${phone}`);
@@ -475,7 +573,8 @@ async function startWhatsAppDaemon(freshPairing = false) {
           phoneNumber: phone,
           qrCodeDataUrl: null,
           pairingCode: null,
-          lastConnectedAt: new Date().toISOString()
+          lastConnectedAt: new Date().toISOString(),
+          lastOnlineTimestamp: Date.now()
         });
 
         updateDb((db) => {
@@ -528,6 +627,20 @@ async function startWhatsAppDaemon(freshPairing = false) {
             // Aturan ketat: per nomor hanya 1 kali sambutan seumur hidup
             if (welcomedSet.has(phoneNum)) {
               console.log(`[WELCOME-GUARD] Nomor +${phoneNum} sudah pernah disapa sebelumnya. Melewati sambutan.`);
+              continue;
+            }
+
+            // Jangan kirim sapaan jika socket belum sepenuhnya stabil terhubung (menghindari spam saat sync history)
+            const isSocketReady = connectionState === 'CONNECTED' && (sock?.ws?.isOpen || sock?.ws?.socket?.readyState === 1);
+            if (!isSocketReady) {
+              console.log(`[WELCOME-GUARD] Socket belum sepenuhnya stabil (status: ${connectionState}). Menandai +${phoneNum} tanpa spam.`);
+              welcomedSet.add(phoneNum);
+              updateDb((db) => {
+                if (!Array.isArray(db.welcomedMembers)) db.welcomedMembers = [];
+                if (!db.welcomedMembers.includes(phoneNum)) {
+                  db.welcomedMembers.push(phoneNum);
+                }
+              });
               continue;
             }
 
@@ -662,10 +775,10 @@ async function startWhatsAppDaemon(freshPairing = false) {
         processedMessageIds.delete(first);
       }
 
-      // Filter usia pesan (hanya proses pesan maksimal 24 jam terakhir)
+      // Filter usia pesan (hanya proses pesan maksimal 48 jam terakhir sesuai batas hapus admin WhatsApp)
       const timestampSec = Number(msg.messageTimestamp) || Math.floor(Date.now() / 1000);
       const ageHours = (Date.now() / 1000 - timestampSec) / 3600;
-      if (ageHours > 24) return;
+      if (ageHours > 48) return;
 
       const isGroup = msg.key.remoteJid?.endsWith('@g.us');
       const groupJid = msg.key.remoteJid;
@@ -1121,11 +1234,18 @@ async function startWhatsAppDaemon(freshPairing = false) {
             console.log(`[DAEMON-ANTI-SPOOF] 🚨 Duplikasi template resmi terdeteksi dari ${senderName} (${senderJid}) di ${groupJid}! Menghapus senyap tanpa klarifikasi...`);
 
             // Langsung hapus pesan duplikat dari grup secara senyap
-            await sock.sendMessage(groupJid, { delete: msg.key }).catch(e => {
+            await sock.sendMessage(groupJid, {
+              delete: {
+                remoteJid: groupJid,
+                fromMe: false,
+                id: msg.key.id,
+                participant: senderJid
+              }
+            }).catch(e => {
               console.error('[DAEMON-ANTI-SPOOF] Gagal hapus pesan duplikat:', e.message);
             });
 
-            return; // Selesai, hapus langsung tanpa klarifikasi apa pun ke grup
+            return { actionTaken: true }; // Selesai, hapus langsung tanpa klarifikasi apa pun ke grup
           }
 
           // =========================================================================
@@ -1133,10 +1253,17 @@ async function startWhatsAppDaemon(freshPairing = false) {
           // =========================================================================
           const fastViolation = isGroup ? inspectFastRules(text) : null;
           if (fastViolation && isGroup) {
-            console.log(`[DAEMON-FAST-PATH] ⚡ Pelanggaran instan terdeteksi [${fastViolation.type}] dari ${senderName} di ${groupJid}! Menghapus langsung tanpa jeda...`);
+            console.log(`[DAEMON-FAST-PATH] ⚡ Pelanggaran instan terdeteksi [${fastViolation.type}] ${isBacklog ? '(OFFLINE CATCH-UP)' : ''} dari ${senderName} di ${groupJid}! Menghapus langsung tanpa jeda...`);
 
             // 1. LANGSUNG HAPUS PESAN DARI WHATSAPP DALAM MILIDETIK
-            await sock.sendMessage(groupJid, { delete: msg.key }).catch(e => {
+            await sock.sendMessage(groupJid, {
+              delete: {
+                remoteJid: groupJid,
+                fromMe: false,
+                id: msg.key.id,
+                participant: senderJid
+              }
+            }).catch(e => {
               console.error('[DAEMON-DELETE-FAST] Gagal hapus pesan:', e.message);
               if (e.message?.includes('admin') || e.message?.includes('403') || e.message?.includes('forbidden')) {
                 console.warn('[DAEMON-ADMIN-WARN] Nomor bot (+6285780459052) belum menjadi Admin di grup ini. Harap jadikan Admin agar bot bisa menghapus pesan!');
@@ -1145,8 +1272,12 @@ async function startWhatsAppDaemon(freshPairing = false) {
 
             // 2. LANGSUNG KIRIM PERINGATAN RESMI CYBER SECURITY KE GRUP
             const senderNumber = senderJid.replace(/[^0-9]/g, '');
+            const warningHeader = isBacklog 
+              ? `🚨 *WASPADA*: Pesan masuk saat sistem pengawas offline dari @${senderNumber} telah *DIHAPUS OTOMATIS* demi keamanan grup.`
+              : `🚨 *WASPADA*: Pesan dari @${senderNumber} telah *DIHAPUS OTOMATIS* demi keamanan grup.`;
+
             const warningText = `${fastViolation.title}\n_SRJ GUARDIAN — SISTEM KEAMANAN SIBER_\n\n` +
-              `🚨 *WASPADA*: Pesan dari @${senderNumber} telah *DIHAPUS OTOMATIS* demi keamanan grup.\n\n` +
+              `${warningHeader}\n\n` +
               `${fastViolation.threatHeader}\n\n` +
               `${fastViolation.advice}`;
 
@@ -1185,7 +1316,7 @@ async function startWhatsAppDaemon(freshPairing = false) {
               })
             }).catch(e => console.error('[DAEMON-FAST-LOG] Gagal background log:', e.message));
 
-            return; // Selesai seketika!
+            return { actionTaken: true }; // Selesai seketika!
           }
 
           try {
@@ -1211,7 +1342,14 @@ async function startWhatsAppDaemon(freshPairing = false) {
               // Hapus pesan otomatis jika terdeteksi ancaman keamanan atau pelanggaran aturan moderasi
               if (isGroup && (result.actionTaken === 'MESSAGE_DELETED' || result.securityIncident || result.moderationLog)) {
                 console.log(`[DAEMON-ACTION] Menghapus pesan ${msg.key.id} dari ${senderName} di grup ${groupJid}`);
-                await sock.sendMessage(groupJid, { delete: msg.key }).catch(e => {
+                await sock.sendMessage(groupJid, {
+                  delete: {
+                    remoteJid: groupJid,
+                    fromMe: false,
+                    id: msg.key.id,
+                    participant: senderJid
+                  }
+                }).catch(e => {
                   console.error('[DAEMON-DELETE] Gagal hapus pesan:', e.message);
                   if (e.message?.includes('admin') || e.message?.includes('403') || e.message?.includes('forbidden')) {
                     console.warn('[DAEMON-ADMIN-WARN] Nomor bot (+6285780459052) belum menjadi Admin di grup ini. Harap jadikan Admin agar bot bisa menghapus pesan!');
@@ -1273,8 +1411,12 @@ async function startWhatsAppDaemon(freshPairing = false) {
                       '*1 KALI LAGI* mengirimkan tautan mencurigakan, nomor Anda akan *DI-KICK SEMENTARA* demi keamanan grup!';
                   }
 
+                  const warningHeader = isBacklog 
+                    ? `🚨 *WASPADA*: Pesan masuk saat pengawas offline dari @${senderNumber} telah *DIHAPUS OTOMATIS* demi keamanan grup.`
+                    : `🚨 *WASPADA*: Pesan dari @${senderNumber} telah *DIHAPUS OTOMATIS* demi keamanan grup.`;
+
                   const securityWarningText = `${secTitle}\n_SRJ GUARDIAN — SISTEM KEAMANAN SIBER_\n\n` +
-                    `🚨 *WASPADA*: Pesan dari @${senderNumber} telah *DIHAPUS OTOMATIS* demi keamanan grup.\n\n` +
+                    `${warningHeader}\n\n` +
                     `${threatHeader}\n\n` +
                     `${advice}`;
 
@@ -1409,6 +1551,8 @@ async function startWhatsAppDaemon(freshPairing = false) {
                   await sock.sendMessage(`${adminPhone}@s.whatsapp.net`, { text: alertMsg }).catch(e => console.error('Gagal notif admin:', e.message));
                 }
               }
+
+              return { actionTaken: Boolean(result.actionTaken === 'MESSAGE_DELETED' || result.securityIncident || result.moderationLog) };
             }
           } catch (apiErr) {
             console.error('[DAEMON] Gagal dispatch ke pipeline:', apiErr.message);
@@ -1416,12 +1560,16 @@ async function startWhatsAppDaemon(freshPairing = false) {
       } catch (err) {
         console.error('[DAEMON] Error handleOneMessage:', err.message);
       }
+      return { actionTaken: false };
     }
 
     // 1. Inbound Messages Listener (baik 'notify' pesan langsung maupun 'append' pesan offline)
     sock.ev.on('messages.upsert', async (m) => {
       try {
         const isBacklog = m.type === 'append';
+        if (isBacklog && m.messages?.length > 0) {
+          console.log(`[DAEMON-CATCHUP] 📥 Menerima ${m.messages.length} pesan offline backlog (upsert append)...`);
+        }
         for (const msg of m.messages || []) {
           await handleOneMessage(msg, isBacklog);
         }
@@ -1431,21 +1579,32 @@ async function startWhatsAppDaemon(freshPairing = false) {
     });
 
     // 2. Offline / Messaging History Sync Listener (saat baru tersambung kembali setelah offline/sleep)
-    sock.ev.on('messaging-history.set', async ({ messages }) => {
+    sock.ev.on('messaging-history.set', async ({ messages, isLatest }) => {
       try {
         if (messages && messages.length > 0) {
-          // Hanya proses pesan 1 jam terakhir untuk menjaga kestabilan memori V8 & performa
-          const recentThreshold = Math.floor(Date.now() / 1000) - 3600;
-          const freshMessages = messages.filter(m => {
+          const offlineThreshold = getOfflineThresholdSec();
+          const offlineSinceDate = new Date(offlineThreshold * 1000).toLocaleString('id-ID');
+          console.log(`[DAEMON-CATCHUP] 📥 Sinkronisasi riwayat pesan diterima (${messages.length} pesan). Memfilter pesan sejak ${offlineSinceDate}...`);
+
+          const backlogMessages = messages.filter(m => {
             const ts = Number(m.messageTimestamp) || 0;
-            return ts > recentThreshold;
+            return ts >= offlineThreshold;
           });
-          if (freshMessages.length > 0) {
-            console.log(`[DAEMON-CATCHUP] 📥 Memindai ${freshMessages.length} pesan tertinggal (dari total ${messages.length} riwayat)...`);
-            for (const msg of freshMessages) {
-              await handleOneMessage(msg, true);
+
+          if (backlogMessages.length > 0) {
+            console.log(`[DAEMON-CATCHUP] 🔍 Ditemukan ${backlogMessages.length} pesan masuk selama bot offline. Memulai pemindaian keamanan & moderasi...`);
+            let scannedCount = 0;
+            let actionCount = 0;
+
+            for (const msg of backlogMessages) {
+              scannedCount++;
+              const res = await handleOneMessage(msg, true);
+              if (res?.actionTaken) actionCount++;
             }
-            console.log('[DAEMON-CATCHUP] ✅ Pemindaian pesan tertinggal pasca offline selesai!');
+
+            console.log(`[DAEMON-CATCHUP] ✅ Pemindaian riwayat offline selesai! (${scannedCount} dipindai, ${actionCount} tindakan keamanan diambil)`);
+          } else {
+            console.log('[DAEMON-CATCHUP] ✅ Tidak ada pesan baru selama periode offline.');
           }
         }
       } catch (err) {
@@ -1454,29 +1613,32 @@ async function startWhatsAppDaemon(freshPairing = false) {
     });
 
   } catch (fatalErr) {
-    isInitializing = false;
+    connectionState = 'DISCONNECTED';
     currentSock = null;
     console.error('[DAEMON] Fatal worker error:', fatalErr.message);
-    console.log('[DAEMON] Menjadwalkan percobaan koneksi ulang dalam 5 detik...');
-    setTimeout(() => startWhatsAppDaemon(false), 5000);
+    scheduleReconnect(5000, `Fatal error: ${fatalErr.message}`);
   }
 }
 
 // =========================================================================
 // PENGAWAS JARINGAN AKTIF (NETWORK WATCHDOG 24/7)
-// Mendeteksi ketika koneksi internet aktif kembali setelah sempat offline/putus,
-// dan seketika menyambungkan kembali bot WhatsApp secara otomatis!
+// Menjaga status koneksi dan otomatis menjadwalkan rekoneksi jika socket terputus
 // =========================================================================
 setInterval(async () => {
   try {
-    const isSocketAlive = currentSock?.ws && currentSock.ws.readyState === 1;
-    if (!isSocketAlive && !isInitializing) {
-      require('dns').lookup('web.whatsapp.com', (err) => {
-        if (!err && !isInitializing && (!currentSock || currentSock.ws?.readyState !== 1)) {
-          console.log('[NETWORK-WATCHDOG] 🌐 Jaringan internet aktif! Menyambungkan kembali bot WhatsApp...');
-          startWhatsAppDaemon(false);
-        }
+    const isSocketAlive = (currentSock?.ws?.isOpen || currentSock?.ws?.socket?.readyState === 1) && connectionState === 'CONNECTED';
+
+    if (isSocketAlive) {
+      writeWaState({
+        lastOnlineTimestamp: Date.now()
       });
+    } else if (connectionState === 'DISCONNECTED' && !reconnectTimer) {
+      console.log('[NETWORK-WATCHDOG] ⚠️ Koneksi offline. Menjadwalkan rekoneksi...');
+      scheduleReconnect(2000, 'Watchdog mendeteksi koneksi terputus');
+    } else if (connectionState === 'CONNECTED' && !isSocketAlive && !reconnectTimer) {
+      console.log('[NETWORK-WATCHDOG] ⚠️ Socket terputus tanpa event close. Memulihkan koneksi...');
+      connectionState = 'DISCONNECTED';
+      scheduleReconnect(2000, 'Socket terputus diam-diam');
     }
   } catch (e) {}
 }, 5000);
@@ -1552,8 +1714,13 @@ setInterval(async () => {
     } else if (cmd.command === 'REFRESH_QR') {
       console.log('[DAEMON-IPC] Memulai ulang sesi untuk QR code segar...');
       if (currentSock) {
-        try { currentSock.end(new Error('Refresh QR')); } catch (e) {}
+        try {
+          currentSock.ev?.removeAllListeners();
+          currentSock.ws?.close();
+        } catch (e) {}
+        currentSock = null;
       }
+      connectionState = 'DISCONNECTED';
       setTimeout(() => startWhatsAppDaemon(true), 1000);
       fs.writeFileSync(RESP_FILE, JSON.stringify({ id: cmd.id, success: true }, null, 2));
     } else if (cmd.command === 'SYNC_GROUPS' || cmd.command === 'REFRESH_GROUPS') {
